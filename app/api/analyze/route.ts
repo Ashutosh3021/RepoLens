@@ -7,12 +7,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { parseRepoUrl, buildRepoContext } from "@/lib/github";
 import { analyzeRepository } from "@/services/analysis";
+import { llmService } from "@/services/llm";
 import { cache } from "@/lib/redis";
 import type { AIProvider } from "@/lib/types";
 
 const RequestSchema = z.object({
   url: z.string().url(),
-  provider: z.enum(["gemini", "openai", "anthropic", "groq"]).optional().default("gemini"),
+  provider: z.enum(["gemini", "openai", "anthropic", "groq", "ollama"]).optional().default("gemini"),
   model: z.string().optional(),
   forceRefresh: z.boolean().optional().default(false),
 });
@@ -34,6 +35,20 @@ export async function POST(request: NextRequest) {
     }
 
     const { url, provider, model, forceRefresh } = parsed.data;
+
+    // Verify the requested provider is available before doing any expensive work
+    if (!llmService.isRegistered(provider as AIProvider)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            provider === "ollama"
+              ? "Ollama is not running. Start it with `ollama serve` and make sure OLLAMA_BASE_URL is set in .env.local."
+              : `Provider "${provider}" is not configured. Add the API key to .env.local and restart the server.`,
+        },
+        { status: 400 }
+      );
+    }
 
     // Parse owner and repo from URL
     const parseResult = parseRepoUrl(url);

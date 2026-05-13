@@ -10,91 +10,15 @@
 "use client";
 
 import { MermaidRenderer } from "@/components/mermaid-renderer";
+import { RepoData } from "@/lib/types";
 
-// Mock Mermaid diagrams
-const architectureDiagram = `flowchart TB
-    subgraph Frontend["Frontend Layer"]
-        A[Next.js 14 App]
-        B[React Components]
-        C[Tailwind CSS]
-        D[shadcn/ui]
-    end
+export function DiagramsTab({ data }: { data: RepoData | null }) {
+  if (!data) {
+    return <div className="text-center py-12 text-slate-400">No repository data available</div>;
+  }
 
-    subgraph State["State Management"]
-        E[React Hooks]
-        F[Context API]
-    end
+  const diagrams = data.analysis.diagrams;
 
-    subgraph Backend["Backend Services"]
-        G[API Routes]
-        H[GitHub API]
-        I[AI Providers]
-    end
-
-    subgraph Data["Data Layer"]
-        J[Repository Data]
-        K[Analysis Cache]
-        L[User Preferences]
-    end
-
-    A --> B
-    B --> C
-    B --> D
-    A --> E
-    E --> F
-    A --> G
-    G --> H
-    G --> I
-    G --> J
-    J --> K
-    F --> L
-
-    style A fill:#00e5ff,stroke:#0a0a0f,color:#0a0a0f
-    style G fill:#7c3aed,stroke:#0a0a0f,color:#fff
-    style H fill:#22c55e,stroke:#0a0a0f,color:#0a0a0f
-    style I fill:#f59e0b,stroke:#0a0a0f,color:#0a0a0f`;
-
-const workflowDiagram = `sequenceDiagram
-    actor User
-    participant Frontend as RepoLens UI
-    participant API as Next.js API
-    participant GitHub as GitHub API
-    participant AI as AI Service
-    participant Cache as Redis Cache
-
-    User->>Frontend: Enter Repository URL
-    Frontend->>API: POST /api/analyze
-    
-    API->>Cache: Check cache
-    alt Cache hit
-        Cache-->>API: Return cached data
-    else Cache miss
-        API->>GitHub: Fetch repository data
-        GitHub-->>API: Repository metadata
-        
-        API->>GitHub: Fetch file tree
-        GitHub-->>API: File structure
-        
-        API->>GitHub: Fetch README
-        GitHub-->>API: README content
-        
-        API->>AI: Analyze repository
-        AI-->>API: Analysis results
-        
-        API->>Cache: Store results
-    end
-    
-    API-->>Frontend: Analysis complete
-    Frontend-->>User: Display results
-    
-    User->>Frontend: Request diagram
-    Frontend->>API: POST /api/generate-diagram
-    API->>AI: Generate Mermaid diagram
-    AI-->>API: Diagram code
-    API-->>Frontend: Diagram data
-    Frontend-->>User: Render diagram`;
-
-export function DiagramsTab() {
   return (
     <div className="space-y-6">
       {/* Info Card */}
@@ -110,8 +34,8 @@ export function DiagramsTab() {
 
       {/* Mermaid Renderer */}
       <MermaidRenderer
-        architectureDiagram={architectureDiagram}
-        workflowDiagram={workflowDiagram}
+        architectureDiagram={diagrams.architecture}
+        workflowDiagram={diagrams.workflow}
       />
     </div>
   );

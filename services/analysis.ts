@@ -16,127 +16,61 @@ import { llmService } from "./llm";
  * System prompts for different analysis tasks
  */
 const SYSTEM_PROMPTS = {
-  explanation: `You are RepoLens, an expert code analyst. Analyze the provided repository context and generate a comprehensive explanation. Focus on:
-- The project's purpose and main functionality
-- Technology stack and architecture patterns
-- Key files and their roles
-- Entry points and main workflows
-- Notable design decisions
+  explanation: `Analyze this repository and write a concise markdown explanation covering: purpose, tech stack, key files, and main workflows. Be brief.`,
 
-Be concise but thorough. Format your response in markdown.`,
+  scoring: `Score this repository 1-10 across 6 dimensions. Return ONLY valid JSON:
+{"overall":7.5,"breakdown":{"codeQuality":8,"documentation":7,"testing":6,"activity":8,"dependencies":7,"community":7},"details":{"codeQuality":["point1","point2"],"documentation":["point1"],"testing":["point1"],"activity":["point1"],"dependencies":["point1"],"community":["point1"]}}`,
 
-  scoring: `You are a code quality expert. Analyze the repository and provide a detailed score (1-10) across these 6 dimensions:
-1. Code Quality (structure, consistency, best practices)
-2. Documentation (README quality, comments, inline docs)
-3. Testing (coverage, test quality, CI/CD)
-4. Activity (commit frequency, maintenance, issue resolution)
-5. Dependencies (health, update frequency, security)
-6. Community (contributors, adoption, engagement)
+  architecture: `Generate a Mermaid flowchart for this repository's architecture.
+Return ONLY raw Mermaid code starting with "flowchart TB". No fences, no prose.
 
-Provide specific details for each dimension. Return ONLY valid JSON in this exact format:
-{
-  "overall": 8.5,
-  "breakdown": {
-    "codeQuality": 9.0,
-    "documentation": 7.5,
-    "testing": 8.0,
-    "activity": 9.5,
-    "dependencies": 8.5,
-    "community": 7.0
-  },
-  "details": {
-    "codeQuality": ["detail1", "detail2", ...],
-    "documentation": [...],
-    "testing": [...],
-    "activity": [...],
-    "dependencies": [...],
-    "community": [...]
-  }
-}`,
+flowchart TB
+    subgraph Frontend
+        A[UI] --> B[Components]
+    end
+    subgraph Backend
+        C[API] --> D[Services]
+        D --> E[(DB)]
+    end
+    Frontend --> Backend`,
 
-  architecture: `You are a systems architect. Generate a Mermaid flowchart diagram showing the high-level architecture of this repository. 
+  workflow: `Generate a Mermaid sequence diagram for this repository's main user workflow.
+Return ONLY raw Mermaid code starting with "sequenceDiagram". No fences, no prose.
 
-Requirements:
-- Use 'flowchart TB' (top-bottom) direction
-- Include subgraphs for major components (Frontend, Backend, Database, etc.)
-- Show data flow between components
-- Use descriptive node names
-- Style important nodes with colors
+sequenceDiagram
+    participant User
+    participant App
+    participant API
+    User->>App: Action
+    App->>API: Request
+    API-->>App: Response
+    App-->>User: Result`,
 
-Return ONLY the Mermaid code block, no explanations.`,
+  deployment: `Recommend deployment platforms for this repo. Return ONLY valid JSON:
+{"free":[{"name":"Vercel","description":"Best for Next.js","difficulty":"Easy","estimatedTime":"3 min","features":["HTTPS","CDN","Preview"],"steps":["Connect GitHub","Import project","Deploy"],"pricing":"Free tier"},{"name":"Railway","description":"Full-stack platform","difficulty":"Easy","estimatedTime":"5 min","features":["Auto-scale","DB hosting"],"steps":["Create account","Deploy from GitHub","Set env vars"],"pricing":"$5 credit free"}],"paid":[{"name":"AWS Amplify","description":"Enterprise AWS","difficulty":"Medium","estimatedTime":"10 min","features":["CI/CD","Auth","API Gateway"],"steps":["Create AWS account","Connect repo","Configure build","Deploy"],"pricing":"Pay as you go"}]}`,
 
-  workflow: `You are a systems architect. Generate a Mermaid sequence diagram showing the main workflow or data flow of this application.
-
-Requirements:
-- Use 'sequenceDiagram' type
-- Identify key actors/participants
-- Show the main interactions
-- Focus on the most important user flow
-
-Return ONLY the Mermaid code block, no explanations.`,
-
-  deployment: `You are a DevOps expert. Analyze the technology stack and recommend deployment options for both free and paid tiers.
-
-For each tier, suggest 3 platforms that would be best suited. For each platform include:
-- Name
-- Description
-- Difficulty (Easy/Medium/Advanced)
-- Estimated setup time
-- Key features
-- Deployment steps
-
-Return ONLY valid JSON in this format:
-{
-  "free": [
-    {
-      "name": "Platform Name",
-      "description": "...",
-      "difficulty": "Easy",
-      "estimatedTime": "5 minutes",
-      "features": ["feature1", "feature2"],
-      "steps": ["step1", "step2", "step3"]
-    }
-  ],
-  "paid": [...]
-}`,
-
-  mcp: `You are an API designer. Generate a Model Context Protocol (MCP) server configuration for this repository.
-
-Include:
-- Server metadata
-- Available tools/functions
-- Resource templates
-- AI configuration
-- Feature flags
-
-Return ONLY valid JSON configuration.`,
+  mcp: `Generate a minimal MCP server config JSON for this repository. Return ONLY valid JSON with keys: name, version, description, server (port, host), capabilities (tools array with name/description/parameters), ai (provider, model).`,
 };
 
 /**
  * Generate AI explanation for repository
- * @param context - Repository context
- * @param provider - AI provider
- * @param model - Model name
  */
 async function generateExplanation(
-  context: RepoContext,
+  contextPrompt: string,
   provider: AIProvider,
   model?: string
 ): Promise<string> {
   try {
-    const prompt = buildContextPrompt(context);
-
-    const response = await llmService.generateCompletion(provider, prompt, {
+    const response = await llmService.generateCompletion(provider, contextPrompt, {
       model,
       systemPrompt: SYSTEM_PROMPTS.explanation,
       temperature: 0.7,
-      maxTokens: 2000,
+      maxTokens: 1500,
     });
-
     return response.content;
   } catch (error) {
     console.error("Explanation generation failed:", error);
-    return getDefaultExplanation(context);
+    return "Analysis failed. Please try again.";
   }
 }
 
@@ -169,12 +103,9 @@ ${context.metadata.license || "No license specified"}`;
 
 /**
  * Generate repository score
- * @param context - Repository context
- * @param provider - AI provider
- * @param model - Model name
-  */
+ */
 async function generateScore(
-  context: RepoContext,
+  contextPrompt: string,
   provider: AIProvider,
   model?: string
 ): Promise<{
@@ -183,28 +114,25 @@ async function generateScore(
   details: Record<keyof ScoreBreakdown, string[]>;
 }> {
   try {
-    const prompt = buildContextPrompt(context);
-
-    const response = await llmService.generateCompletion(provider, prompt, {
+    const response = await llmService.generateCompletion(provider, contextPrompt, {
       model,
       systemPrompt: SYSTEM_PROMPTS.scoring,
       temperature: 0.3,
-      maxTokens: 1500,
+      maxTokens: 1200,
     });
 
-    // Extract JSON from response
     const jsonMatch = response.content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       return {
         overall: parsed.overall || 7.0,
         breakdown: {
-          codeQuality: parsed.breakdown?.codeQuality || 7.0,
+          codeQuality:   parsed.breakdown?.codeQuality   || 7.0,
           documentation: parsed.breakdown?.documentation || 7.0,
-          testing: parsed.breakdown?.testing || 7.0,
-          activity: parsed.breakdown?.activity || 7.0,
-          dependencies: parsed.breakdown?.dependencies || 7.0,
-          community: parsed.breakdown?.community || 7.0,
+          testing:       parsed.breakdown?.testing       || 7.0,
+          activity:      parsed.breakdown?.activity      || 7.0,
+          dependencies:  parsed.breakdown?.dependencies  || 7.0,
+          community:     parsed.breakdown?.community     || 7.0,
         },
         details: parsed.details || {},
       };
@@ -213,67 +141,93 @@ async function generateScore(
     console.error("Failed to parse score JSON:", error);
   }
 
-  // Fallback scores
   return {
     overall: 7.0,
     breakdown: {
-      codeQuality: 7.0,
-      documentation: 7.0,
-      testing: 7.0,
-      activity: 7.0,
-      dependencies: 7.0,
-      community: 7.0,
+      codeQuality: 7.0, documentation: 7.0, testing: 7.0,
+      activity: 7.0, dependencies: 7.0, community: 7.0,
     },
     details: {
-      codeQuality: ["Code structure analyzed"],
+      codeQuality:   ["Code structure analyzed"],
       documentation: ["Documentation reviewed"],
-      testing: ["Test coverage assessed"],
-      activity: ["Activity metrics evaluated"],
-      dependencies: ["Dependencies checked"],
-      community: ["Community engagement reviewed"],
+      testing:       ["Test coverage assessed"],
+      activity:      ["Activity metrics evaluated"],
+      dependencies:  ["Dependencies checked"],
+      community:     ["Community engagement reviewed"],
     },
   };
 }
 
 /**
+ * Extract and sanitize a Mermaid diagram from raw LLM output.
+ *
+ * The LLM sometimes wraps the diagram in markdown fences, adds prose before/after,
+ * or returns plain text. This function:
+ * 1. Strips ```mermaid ... ``` fences
+ * 2. Strips plain ``` ... ``` fences
+ * 3. Finds the first line that starts with a known Mermaid keyword
+ * 4. Returns everything from that line onward
+ * 5. Returns empty string if nothing valid is found
+ */
+function extractMermaid(raw: string, expectedKeyword: string): string {
+  if (!raw || !raw.trim()) return "";
+
+  // Strip ```mermaid ... ``` fences
+  const fencedMermaid = raw.match(/```mermaid\s*\n([\s\S]*?)```/);
+  if (fencedMermaid) return fencedMermaid[1].trim();
+
+  // Strip plain ``` ... ``` fences
+  const fencedPlain = raw.match(/```\s*\n?([\s\S]*?)```/);
+  if (fencedPlain) {
+    const inner = fencedPlain[1].trim();
+    if (inner.toLowerCase().startsWith(expectedKeyword)) return inner;
+  }
+
+  // Find the first line that starts with the expected keyword
+  const lines = raw.split("\n");
+  const startIdx = lines.findIndex((l) =>
+    l.trim().toLowerCase().startsWith(expectedKeyword)
+  );
+  if (startIdx !== -1) {
+    return lines.slice(startIdx).join("\n").trim();
+  }
+
+  // Also accept any known Mermaid keyword as a fallback
+  const KEYWORDS = ["flowchart", "graph ", "sequencediagram", "classdiagram",
+    "statediagram", "erdiagram", "gantt", "pie", "gitgraph"];
+  const anyIdx = lines.findIndex((l) =>
+    KEYWORDS.some((kw) => l.trim().toLowerCase().startsWith(kw))
+  );
+  if (anyIdx !== -1) {
+    return lines.slice(anyIdx).join("\n").trim();
+  }
+
+  return "";
+}
+
+/**
  * Generate architecture diagram
- * @param context - Repository context
- * @param provider - AI provider
- * @param model - Model name
  */
 async function generateArchitectureDiagram(
+  contextPrompt: string,
   context: RepoContext,
   provider: AIProvider,
   model?: string
 ): Promise<string> {
   try {
-    const prompt = buildContextPrompt(context);
-
-    const response = await llmService.generateCompletion(provider, prompt, {
+    const response = await llmService.generateCompletion(provider, contextPrompt, {
       model,
       systemPrompt: SYSTEM_PROMPTS.architecture,
-      temperature: 0.5,
-      maxTokens: 1500,
+      temperature: 0.3,
+      maxTokens: 1000,
     });
 
-    // Extract Mermaid code - try multiple patterns
-    let mermaidMatch = response.content.match(/```mermaid\n([\s\S]*?)```/);
-    if (mermaidMatch) {
-      return mermaidMatch[1].trim();
-    }
-    
-    // Try without language specifier
-    mermaidMatch = response.content.match(/```\n?([\s\S]*?)```/);
-    if (mermaidMatch && mermaidMatch[1].includes("flowchart")) {
-      return mermaidMatch[1].trim();
-    }
-
-    // Return raw content if no code block found
-    return response.content.trim();
+    const extracted = extractMermaid(response.content, "flowchart");
+    if (extracted) return extracted;
   } catch (error) {
     console.error("Architecture diagram generation failed:", error);
-    return getDefaultArchitectureDiagram(context);
   }
+  return getDefaultArchitectureDiagram(context);
 }
 
 /**
@@ -294,43 +248,27 @@ function getDefaultArchitectureDiagram(context: RepoContext): string {
 
 /**
  * Generate workflow diagram
- * @param context - Repository context
- * @param provider - AI provider
- * @param model - Model name
  */
 async function generateWorkflowDiagram(
+  contextPrompt: string,
   context: RepoContext,
   provider: AIProvider,
   model?: string
 ): Promise<string> {
   try {
-    const prompt = buildContextPrompt(context);
-
-    const response = await llmService.generateCompletion(provider, prompt, {
+    const response = await llmService.generateCompletion(provider, contextPrompt, {
       model,
       systemPrompt: SYSTEM_PROMPTS.workflow,
-      temperature: 0.5,
-      maxTokens: 1500,
+      temperature: 0.3,
+      maxTokens: 1000,
     });
 
-    // Extract Mermaid code - try multiple patterns
-    let mermaidMatch = response.content.match(/```mermaid\n([\s\S]*?)```/);
-    if (mermaidMatch) {
-      return mermaidMatch[1].trim();
-    }
-    
-    // Try without language specifier
-    mermaidMatch = response.content.match(/```\n?([\s\S]*?)```/);
-    if (mermaidMatch && mermaidMatch[1].includes("sequenceDiagram")) {
-      return mermaidMatch[1].trim();
-    }
-
-    // Return raw content if no code block found
-    return response.content.trim();
+    const extracted = extractMermaid(response.content, "sequencediagram");
+    if (extracted) return extracted;
   } catch (error) {
     console.error("Workflow diagram generation failed:", error);
-    return getDefaultWorkflowDiagram(context);
   }
+  return getDefaultWorkflowDiagram(context);
 }
 
 /**
@@ -351,25 +289,21 @@ function getDefaultWorkflowDiagram(context: RepoContext): string {
 
 /**
  * Generate deployment guide
- * @param context - Repository context
- * @param provider - AI provider
- * @param model - Model name
  */
 async function generateDeploymentGuide(
+  contextPrompt: string,
   context: RepoContext,
   provider: AIProvider,
   model?: string
 ): Promise<{ free: DeploymentOption[]; paid: DeploymentOption[] }> {
-  const prompt = buildContextPrompt(context);
-
-  const response = await llmService.generateCompletion(provider, prompt, {
-    model,
-    systemPrompt: SYSTEM_PROMPTS.deployment,
-    temperature: 0.4,
-    maxTokens: 2000,
-  });
-
   try {
+    const response = await llmService.generateCompletion(provider, contextPrompt, {
+      model,
+      systemPrompt: SYSTEM_PROMPTS.deployment,
+      temperature: 0.4,
+      maxTokens: 1500,
+    });
+
     const jsonMatch = response.content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
@@ -390,50 +324,48 @@ async function generateDeploymentGuide(
 
 /**
  * Generate MCP configuration
- * @param context - Repository context
- * @param provider - AI provider
- * @param model - Model name
  */
 async function generateMcpConfig(
+  contextPrompt: string,
   context: RepoContext,
   provider: AIProvider,
   model?: string
 ): Promise<Record<string, unknown>> {
-  const prompt = buildContextPrompt(context);
-
-  const response = await llmService.generateCompletion(provider, prompt, {
-    model,
-    systemPrompt: SYSTEM_PROMPTS.mcp,
-    temperature: 0.4,
-    maxTokens: 1500,
-  });
-
   try {
+    const response = await llmService.generateCompletion(provider, contextPrompt, {
+      model,
+      systemPrompt: SYSTEM_PROMPTS.mcp,
+      temperature: 0.4,
+      maxTokens: 1000,
+    });
+
     const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
+    if (jsonMatch) return JSON.parse(jsonMatch[0]);
   } catch (error) {
     console.error("Failed to parse MCP JSON:", error);
   }
 
-  // Return default MCP config
   return getDefaultMcpConfig(context);
 }
 
 /**
- * Build context prompt from repository data
- * @param context - Repository context
+ * Build context prompt from repository data.
+ * Called once and reused across all 6 LLM tasks.
  */
-function buildContextPrompt(context: RepoContext): string {
+export function buildContextPrompt(context: RepoContext): string {
   const importantFilesSummary = context.importantFiles
-    .slice(0, 10)
+    .slice(0, 8)
     .map((f) => `- ${f.path} (${f.language || "unknown"})`)
     .join("\n");
 
   const packageInfo = context.packageFile
-    ? `Package File: ${context.packageFile.type}\nDependencies: ${context.packageFile.dependencies.slice(0, 20).join(", ")}`
+    ? `Package File: ${context.packageFile.type}\nDependencies: ${context.packageFile.dependencies.slice(0, 15).join(", ")}`
     : "No package file detected";
+
+  // Trim README to 1500 chars — enough context, less tokens
+  const readmeSummary = context.readme
+    ? context.readme.slice(0, 1500) + (context.readme.length > 1500 ? "..." : "")
+    : "No README found";
 
   return `Repository: ${context.metadata.fullName}
 Description: ${context.metadata.description || "N/A"}
@@ -446,13 +378,13 @@ Topics: ${context.metadata.topics.join(", ") || "N/A"}
 ${packageInfo}
 
 README Summary:
-${context.readme.slice(0, 2000)}${context.readme.length > 2000 ? "..." : ""}
+${readmeSummary}
 
 Important Files:
 ${importantFilesSummary}
 
 File Count: ${context.tree.tree.length}
-Contributors: ${context.contributors}
+Contributors: ${context.contributors.length}
 Last Commit: ${context.lastCommit.date}`;
 }
 
@@ -622,10 +554,12 @@ function getDefaultMcpConfig(context: RepoContext): Record<string, unknown> {
 }
 
 /**
- * Analyze repository comprehensively
- * @param context - Repository context
- * @param provider - AI provider
- * @param model - Model name
+ * Analyze repository comprehensively.
+ *
+ * Performance notes:
+ * - Context prompt is built ONCE and reused across all 6 LLM calls.
+ * - All 6 LLM calls run in parallel via Promise.all.
+ * - Faster models (flash / haiku / groq) finish in ~10–20s total.
  */
 export async function analyzeRepository(
   context: RepoContext,
@@ -634,22 +568,24 @@ export async function analyzeRepository(
 ): Promise<AnalysisResult> {
   console.log(`🧠 Analyzing repository with ${provider}...`);
 
-  // Check if provider is registered
   if (!llmService.isRegistered(provider)) {
     throw new Error(
       `Provider ${provider} not registered. Please set the API key in settings.`
     );
   }
 
-  // Run all analyses in parallel
+  // Build the context prompt once — all generators receive the same string
+  const contextPrompt = buildContextPrompt(context);
+
+  // Run all 6 analyses in parallel, each reusing the pre-built prompt
   const [explanation, score, architecture, workflow, deployment, mcpConfig] =
     await Promise.all([
-      generateExplanation(context, provider, model),
-      generateScore(context, provider, model),
-      generateArchitectureDiagram(context, provider, model),
-      generateWorkflowDiagram(context, provider, model),
-      generateDeploymentGuide(context, provider, model),
-      generateMcpConfig(context, provider, model),
+      generateExplanation(contextPrompt, provider, model),
+      generateScore(contextPrompt, provider, model),
+      generateArchitectureDiagram(contextPrompt, context, provider, model),
+      generateWorkflowDiagram(contextPrompt, context, provider, model),
+      generateDeploymentGuide(contextPrompt, context, provider, model),
+      generateMcpConfig(contextPrompt, context, provider, model),
     ]);
 
   console.log(`✅ Analysis complete`);
@@ -657,10 +593,7 @@ export async function analyzeRepository(
   return {
     explanation,
     score,
-    diagrams: {
-      architecture,
-      workflow,
-    },
+    diagrams: { architecture, workflow },
     deploymentGuide: deployment,
     mcpConfig,
   };

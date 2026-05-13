@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-export type AIProvider = "gemini" | "openai" | "anthropic" | "groq";
+export type AIProvider = "gemini" | "openai" | "anthropic" | "groq" | "ollama";
 
 interface ProviderSelectorProps {
   value: AIProvider;
@@ -40,25 +40,32 @@ const providers = [
     value: "gemini" as AIProvider,
     label: "Google Gemini",
     icon: "🔮",
-    models: ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"],
+    // gemini-1.5-flash is the current default — gemini-1.5-pro is deprecated
+    models: ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.0-pro"],
   },
   {
     value: "openai" as AIProvider,
     label: "OpenAI",
     icon: "🤖",
-    models: ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
+    models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
   },
   {
     value: "anthropic" as AIProvider,
     label: "Anthropic Claude",
     icon: "🧠",
-    models: ["claude-3-5-sonnet", "claude-3-opus", "claude-3-haiku"],
+    models: ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229", "claude-3-haiku-20240307"],
   },
   {
     value: "groq" as AIProvider,
     label: "Groq",
     icon: "⚡",
-    models: ["llama-3.1-70b", "llama-3.1-8b", "mixtral-8x7b"],
+    models: ["llama-3.1-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
+  },
+  {
+    value: "ollama" as AIProvider,
+    label: "Ollama (Local)",
+    icon: "🦙",
+    models: ["llama3.2", "llama3.1", "llama3", "mistral", "codellama", "deepseek-r1", "phi3", "gemma2"],
   },
 ];
 

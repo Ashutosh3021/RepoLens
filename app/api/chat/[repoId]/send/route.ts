@@ -1,13 +1,13 @@
 /**
- * API Route: POST /api/chat/[repoId]
+ * API Route: POST /api/chat/[repoId]/send
  * Send a message and get AI response
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { sendMessage, initializeSystemMessage } from "@/services/chat";
+import { sendMessage, initializeSystemMessage, getChatHistory } from "@/services/chat";
 import { cache } from "@/lib/redis";
-import type { AIProvider } from "@/lib/types";
+import type { AIProvider, RepoContext } from "@/lib/types";
 
 interface RouteParams {
   params: Promise<{
@@ -17,7 +17,7 @@ interface RouteParams {
 
 const RequestSchema = z.object({
   message: z.string().min(1, "Message cannot be empty").max(4000, "Message too long"),
-  provider: z.enum(["gemini", "openai", "anthropic", "groq"]).optional(),
+  provider: z.enum(["gemini", "openai", "anthropic", "groq", "ollama"]).optional(),
   model: z.string().optional(),
 });
 
@@ -43,12 +43,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { message, provider, model } = parsed.data;
 
     // Get cached analysis
-    const cacheKey = cache.generateRepoKey(
-      decodedRepoId.split("/")[0],
-      decodedRepoId.split("/")[1]
-    );
+    const parts = decodedRepoId.split("/");
+    const cacheKey = cache.generateRepoKey(parts[0], parts[1]);
     const cached = await cache.get<{
-      context: Record<string, unknown>;
+      context: RepoContext;
       analysis: { explanation: string };
     }>(cacheKey);
 
@@ -62,18 +60,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Initialize system message if first time
-    initializeSystemMessage(
-      decodedRepoId,
-      cached.context as unknown as Parameters<typeof initializeSystemMessage>[1],
-      cached.analysis.explanation
-    );
+    // Initialize system message if chat history is empty (first message)
+    const existingHistory = getChatHistory(decodedRepoId, 1);
+    if (existingHistory.length === 0) {
+      initializeSystemMessage(
+        decodedRepoId,
+        cached.context as RepoContext,
+        cached.analysis.explanation
+      );
+    }
 
     // Send message
     const result = await sendMessage(
       decodedRepoId,
       message,
-      cached.context as unknown as Parameters<typeof sendMessage>[2],
+      cached.context as RepoContext,
       cached.analysis.explanation,
       (provider || "gemini") as AIProvider,
       model

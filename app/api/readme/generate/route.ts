@@ -17,7 +17,7 @@ const RequestSchema = z.object({
   includeToc: z.boolean().optional().default(true),
   tone: z.enum(["professional", "casual", "technical"]).optional().default("professional"),
   useAI: z.boolean().optional().default(false),
-  provider: z.enum(["gemini", "openai", "anthropic", "groq"]).optional(),
+  provider: z.enum(["gemini", "openai", "anthropic", "groq", "ollama"]).optional(),
   model: z.string().optional(),
 });
 

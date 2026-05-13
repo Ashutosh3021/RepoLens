@@ -1,9 +1,10 @@
 /**
  * McpTab Component
- * 
+ *
  * Dashboard MCP tab content:
- * - Generated JSON config in code block
+ * - Generated JSON config from analysis.mcpConfig
  * - Copy button
+ * - Download button
  * - Setup instructions
  * - Model Context Protocol configuration
  */
@@ -19,7 +20,6 @@ import {
   Terminal,
   Copy,
   Download,
-  RefreshCw,
   Check,
   AlertCircle,
   Server,
@@ -27,112 +27,46 @@ import {
   Settings,
 } from "lucide-react";
 import { useState } from "react";
+import type { RepoData } from "@/lib/types";
 
-// Mock MCP configuration
-const mcpConfig = {
-  name: "RepoLens MCP Server",
-  version: "1.0.0",
-  description: "Model Context Protocol server for repository analysis",
-  server: {
-    port: 3001,
-    host: "localhost",
-    cors: {
-      origins: ["http://localhost:3000"],
-      methods: ["GET", "POST"],
-    },
-  },
-  capabilities: {
-    tools: [
-      {
-        name: "analyze_repository",
-        description: "Analyze a GitHub repository",
-        parameters: {
-          type: "object",
-          properties: {
-            url: {
-              type: "string",
-              description: "GitHub repository URL",
-            },
-            depth: {
-              type: "string",
-              enum: ["basic", "detailed", "comprehensive"],
-              default: "detailed",
-            },
-          },
-          required: ["url"],
-        },
-      },
-      {
-        name: "generate_diagram",
-        description: "Generate architecture diagram",
-        parameters: {
-          type: "object",
-          properties: {
-            repoUrl: {
-              type: "string",
-              description: "Repository URL",
-            },
-            type: {
-              type: "string",
-              enum: ["architecture", "workflow", "dataflow"],
-              default: "architecture",
-            },
-          },
-          required: ["repoUrl"],
-        },
-      },
-      {
-        name: "chat_with_repo",
-        description: "Ask questions about the repository",
-        parameters: {
-          type: "object",
-          properties: {
-            query: {
-              type: "string",
-              description: "User question",
-            },
-            context: {
-              type: "string",
-              description: "Additional context",
-            },
-          },
-          required: ["query"],
-        },
-      },
-    ],
-    resources: [
-      {
-        name: "repository_info",
-        description: "Basic repository information",
-        template: "repo://{owner}/{name}/info",
-      },
-      {
-        name: "file_content",
-        description: "Repository file content",
-        template: "repo://{owner}/{name}/file/{path}",
-      },
-    ],
-  },
-  ai: {
-    provider: "gemini",
-    model: "gemini-1.5-pro",
-    temperature: 0.7,
-    maxTokens: 4096,
-  },
-  features: {
-    streaming: true,
-    caching: true,
-    rateLimit: {
-      requestsPerMinute: 60,
-      burstSize: 10,
-    },
-  },
-};
-
-const mcpConfigString = JSON.stringify(mcpConfig, null, 2);
-
-export function McpTab() {
+export function McpTab({ data }: { data: RepoData | null }) {
   const [copied, setCopied] = useState(false);
+
+  if (!data) {
+    return (
+      <div className="text-center py-12 text-slate-400">
+        No repository data available
+      </div>
+    );
+  }
+
+  const mcpConfig = data.analysis.mcpConfig;
+
+  if (!mcpConfig || Object.keys(mcpConfig).length === 0) {
+    return (
+      <div className="text-center py-12 space-y-3">
+        <Server className="w-10 h-10 text-slate-500 mx-auto opacity-50" />
+        <p className="text-slate-400 text-sm">
+          No MCP configuration was generated for this repository.
+        </p>
+      </div>
+    );
+  }
+
+  const mcpConfigString = JSON.stringify(mcpConfig, null, 2);
+
+  // Extract tools list for the sidebar panel
+  const tools: Array<{ name: string }> =
+    (mcpConfig as Record<string, unknown>)?.capabilities &&
+    Array.isArray(
+      ((mcpConfig as Record<string, unknown>).capabilities as Record<string, unknown>)?.tools
+    )
+      ? (
+          (
+            (mcpConfig as Record<string, unknown>).capabilities as Record<string, unknown>
+          ).tools as Array<{ name: string }>
+        )
+      : [];
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(mcpConfigString);
@@ -151,6 +85,11 @@ export function McpTab() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+
+  const version =
+    typeof (mcpConfig as Record<string, unknown>).version === "string"
+      ? String((mcpConfig as Record<string, unknown>).version)
+      : "1.0.0";
 
   return (
     <div className="space-y-6">
@@ -173,7 +112,7 @@ export function McpTab() {
                   variant="secondary"
                   className="bg-[#00e5ff]/10 text-[#00e5ff]"
                 >
-                  v1.0.0
+                  v{version}
                 </Badge>
               </div>
               <p className="text-slate-400 max-w-2xl">
@@ -285,26 +224,28 @@ export function McpTab() {
           </Card>
 
           {/* Capabilities */}
-          <Card className="glass-card p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Cpu className="w-5 h-5 text-[#7c3aed]" />
-              <h4 className="font-semibold">Available Tools</h4>
-            </div>
+          {tools.length > 0 && (
+            <Card className="glass-card p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Cpu className="w-5 h-5 text-[#7c3aed]" />
+                <h4 className="font-semibold">Available Tools</h4>
+              </div>
 
-            <div className="space-y-2">
-              {mcpConfig.capabilities.tools.map((tool) => (
-                <div
-                  key={tool.name}
-                  className="flex items-center gap-2 p-2 rounded bg-white/[0.03]"
-                >
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#00e5ff]" />
-                  <span className="text-sm font-mono text-[#00e5ff]">
-                    {tool.name}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </Card>
+              <div className="space-y-2">
+                {tools.map((tool) => (
+                  <div
+                    key={tool.name}
+                    className="flex items-center gap-2 p-2 rounded bg-white/[0.03]"
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#00e5ff]" />
+                    <span className="text-sm font-mono text-[#00e5ff]">
+                      {tool.name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
 
           {/* Note */}
           <div className="flex items-start gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">

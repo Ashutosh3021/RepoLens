@@ -1,7 +1,9 @@
 /**
  * LLM Provider Service
- * Handles multiple AI providers: Gemini, OpenAI, Anthropic, Groq
- * Routes calls to appropriate SDK based on user preference
+ * Handles multiple AI providers: Gemini, OpenAI, Anthropic, Groq, Ollama
+ * Routes calls to appropriate SDK based on user preference.
+ *
+ * Ollama uses the OpenAI SDK pointed at a local base URL — no extra packages needed.
  */
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
@@ -18,10 +20,12 @@ const DEFAULT_MODELS: Record<AIProvider, string> = {
   openai: "gpt-4o-mini",
   anthropic: "claude-3-haiku-20240307",
   groq: "llama-3.1-8b-instant",
+  ollama: process.env.OLLAMA_MODEL || "llama3.2",
 };
 
 /**
- * Provider configuration
+ * Provider configuration.
+ * For Ollama, `apiKey` holds the base URL (e.g. http://localhost:11434).
  */
 interface ProviderConfig {
   apiKey: string;
@@ -57,6 +61,17 @@ function initGroq(config: ProviderConfig) {
 }
 
 /**
+ * Initialize Ollama client via the OpenAI SDK with a custom baseURL.
+ * config.apiKey holds the Ollama base URL (e.g. http://localhost:11434).
+ */
+function initOllama(config: ProviderConfig) {
+  return new OpenAI({
+    baseURL: `${config.apiKey}/v1`,
+    apiKey: "ollama", // Ollama doesn't require a real key
+  });
+}
+
+/**
  * LLM Service class
  */
 export class LLMService {
@@ -64,9 +79,8 @@ export class LLMService {
   private configs: Map<AIProvider, ProviderConfig> = new Map();
 
   /**
-   * Register a provider with API key
-   * @param provider - AI provider name
-   * @param config - Provider configuration
+   * Register a provider with its configuration.
+   * For Ollama, pass the base URL in the `apiKey` field.
    */
   registerProvider(provider: AIProvider, config: ProviderConfig): void {
     this.configs.set(provider, config);
@@ -84,12 +98,14 @@ export class LLMService {
       case "groq":
         this.clients.set(provider, initGroq(config));
         break;
+      case "ollama":
+        this.clients.set(provider, initOllama(config));
+        break;
     }
   }
 
   /**
    * Check if provider is registered
-   * @param provider - AI provider name
    */
   isRegistered(provider: AIProvider): boolean {
     return this.clients.has(provider);
@@ -97,9 +113,6 @@ export class LLMService {
 
   /**
    * Generate completion using specified provider
-   * @param provider - AI provider to use
-   * @param prompt - Input prompt
-   * @param options - Additional options
    */
   async generateCompletion(
     provider: AIProvider,
@@ -125,11 +138,13 @@ export class LLMService {
         case "gemini":
           return this.callGemini(prompt, model, temperature, maxTokens, options.systemPrompt);
         case "openai":
-          return this.callOpenAI(prompt, model, temperature, maxTokens, options.systemPrompt);
+          return this.callOpenAI(prompt, model, temperature, maxTokens, options.systemPrompt, "openai");
         case "anthropic":
           return this.callAnthropic(prompt, model, temperature, maxTokens, options.systemPrompt);
         case "groq":
           return this.callGroq(prompt, model, temperature, maxTokens, options.systemPrompt);
+        case "ollama":
+          return this.callOpenAI(prompt, model, temperature, maxTokens, options.systemPrompt, "ollama");
         default:
           throw new Error(`Unknown provider: ${provider}`);
       }
@@ -184,7 +199,7 @@ export class LLMService {
     return {
       content: response.text(),
       usage: {
-        promptTokens: 0, // Gemini doesn't provide this in the same way
+        promptTokens: 0,
         completionTokens: 0,
         totalTokens: 0,
       },
@@ -194,16 +209,19 @@ export class LLMService {
   }
 
   /**
-   * Call OpenAI API
+   * Call OpenAI-compatible API.
+   * Used for both OpenAI and Ollama (which exposes an OpenAI-compatible endpoint).
+   * @param clientKey - which client to look up: "openai" or "ollama"
    */
   private async callOpenAI(
     prompt: string,
     model: string,
     temperature: number,
     maxTokens: number,
-    systemPrompt?: string
+    systemPrompt?: string,
+    clientKey: "openai" | "ollama" = "openai"
   ): Promise<LLMResponse> {
-    const client = this.clients.get("openai") as OpenAI;
+    const client = this.clients.get(clientKey) as OpenAI;
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
     if (systemPrompt) {
@@ -226,7 +244,7 @@ export class LLMService {
         totalTokens: response.usage?.total_tokens || 0,
       },
       model,
-      provider: "openai",
+      provider: clientKey,
     };
   }
 
@@ -304,11 +322,21 @@ export class LLMService {
   }
 
   /**
-   * Validate API key by making a test call
-   * @param provider - AI provider
-   * @param apiKey - API key to validate
+   * Validate an API key / connection for a provider.
+   *
+   * For Ollama, `apiKey` is the base URL. We do a lightweight GET to
+   * /api/tags instead of a full completion to avoid slow model loads.
    */
   async validateApiKey(provider: AIProvider, apiKey: string): Promise<boolean> {
+    if (provider === "ollama") {
+      try {
+        const res = await fetch(`${apiKey}/api/tags`);
+        return res.ok;
+      } catch {
+        return false;
+      }
+    }
+
     try {
       const testService = new LLMService();
       testService.registerProvider(provider, { apiKey });
@@ -326,19 +354,22 @@ export class LLMService {
 }
 
 /**
- * Global LLM service instance
+ * Global LLM service singleton
  */
 export const llmService = new LLMService();
 
-/**
- * Initialize default provider (Gemini) if API key is available
- */
+// ---------------------------------------------------------------------------
+// Auto-register providers from environment variables at module load time
+// ---------------------------------------------------------------------------
+
 if (process.env.GEMINI_API_KEY) {
   llmService.registerProvider("gemini", {
     apiKey: process.env.GEMINI_API_KEY,
     model: process.env.GEMINI_MODEL || DEFAULT_MODELS.gemini,
   });
-  console.log("✅ Gemini provider initialized");
+  if (process.env.NODE_ENV !== "production") {
+    console.log("✅ Gemini provider initialized");
+  }
 }
 
 if (process.env.OPENAI_API_KEY) {
@@ -346,7 +377,9 @@ if (process.env.OPENAI_API_KEY) {
     apiKey: process.env.OPENAI_API_KEY,
     model: process.env.OPENAI_MODEL || DEFAULT_MODELS.openai,
   });
-  console.log("✅ OpenAI provider initialized");
+  if (process.env.NODE_ENV !== "production") {
+    console.log("✅ OpenAI provider initialized");
+  }
 }
 
 if (process.env.ANTHROPIC_API_KEY) {
@@ -354,7 +387,9 @@ if (process.env.ANTHROPIC_API_KEY) {
     apiKey: process.env.ANTHROPIC_API_KEY,
     model: process.env.ANTHROPIC_MODEL || DEFAULT_MODELS.anthropic,
   });
-  console.log("✅ Anthropic provider initialized");
+  if (process.env.NODE_ENV !== "production") {
+    console.log("✅ Anthropic provider initialized");
+  }
 }
 
 if (process.env.GROQ_API_KEY) {
@@ -362,5 +397,18 @@ if (process.env.GROQ_API_KEY) {
     apiKey: process.env.GROQ_API_KEY,
     model: process.env.GROQ_MODEL || DEFAULT_MODELS.groq,
   });
-  console.log("✅ Groq provider initialized");
+  if (process.env.NODE_ENV !== "production") {
+    console.log("✅ Groq provider initialized");
+  }
+}
+
+if (process.env.OLLAMA_BASE_URL) {
+  llmService.registerProvider("ollama", {
+    // apiKey field repurposed to hold the Ollama base URL
+    apiKey: process.env.OLLAMA_BASE_URL,
+    model: process.env.OLLAMA_MODEL || DEFAULT_MODELS.ollama,
+  });
+  if (process.env.NODE_ENV !== "production") {
+    console.log("✅ Ollama provider initialized at", process.env.OLLAMA_BASE_URL);
+  }
 }

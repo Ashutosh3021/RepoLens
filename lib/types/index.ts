@@ -2,7 +2,7 @@
  * Type definitions for RepoLens backend
  */
 
-export type AIProvider = "gemini" | "openai" | "anthropic" | "groq";
+export type AIProvider = "gemini" | "openai" | "anthropic" | "groq" | "ollama";
 
 export interface LLMResponse {
   content: string;
@@ -215,6 +215,12 @@ export const ChatMessageSchema = {
   provider: "AIProvider.optional()",
   model: "string.optional()",
 };
+
+export interface RepoData {
+  context: RepoContext;
+  analysis: AnalysisResult;
+  timestamp: string;
+}
 
 export const SaveApiKeysSchema = {
   provider: "AIProvider",

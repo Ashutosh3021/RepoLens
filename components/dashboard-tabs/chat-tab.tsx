@@ -1,17 +1,24 @@
 /**
  * ChatTab Component
- * 
+ *
  * Dashboard Chat tab content:
  * - ChatGPT-style chat interface
  * - Message bubbles (user + assistant)
  * - Input bar
  * - Provider label
  * - Memory indicator
+ *
+ * Data flow:
+ * 1. On mount: GET /api/chat/[repoId] to load history
+ * 2. If empty, the first POST /api/chat/[repoId]/send will trigger
+ *    server-side initializeSystemMessage automatically
+ * 3. Subsequent sends: POST /api/chat/[repoId]/send
+ * 4. Clear: DELETE /api/chat/[repoId]
  */
 
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import { ChatBubble, ChatInput } from "@/components/chat-bubble";
@@ -24,90 +31,175 @@ import {
   Brain,
   Sparkles,
   Zap,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
+import type { RepoData, ChatMessage, AIProvider } from "@/lib/types";
 
-interface Message {
+interface DisplayMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
 }
 
-// Mock initial messages
-const initialMessages: Message[] = [
-  {
-    id: "1",
-    role: "assistant",
-    content:
-      "Hi! I'm your AI assistant for analyzing this repository. I can help you understand the codebase, explain specific functions, suggest improvements, or answer any questions you have about the project.",
-    timestamp: new Date(Date.now() - 1000 * 60 * 5),
-  },
-];
+function toDisplayMessage(msg: ChatMessage): DisplayMessage {
+  return {
+    id: String(msg.id),
+    role: msg.role === "user" ? "user" : "assistant",
+    content: msg.content,
+    timestamp: new Date(msg.createdAt),
+  };
+}
 
-// Mock responses for demo
-const mockResponses: Record<string, string> = {
-  default:
-    "Based on the repository analysis, this appears to be a well-structured Next.js application. The code follows modern React patterns with proper TypeScript usage. Would you like me to explain any specific part of the codebase?",
-  structure:
-    "The project follows a standard Next.js 14 structure with the App Router. Key directories include:\n\n- **app/**: Main application pages\n- **components/**: Reusable UI components\n- **lib/**: Utility functions and configurations\n- **types/**: TypeScript type definitions\n\nThe architecture separates concerns well between UI components, business logic, and data fetching.",
-  performance:
-    "From analyzing the code, here are some performance observations:\n\n✅ **Strengths:**\n- Uses React Server Components where appropriate\n- Implements proper code splitting\n- Static generation for appropriate pages\n\n⚠️ **Areas for improvement:**\n- Some client components could be server components\n- Consider implementing proper caching strategies",
-};
-
-export function ChatTab() {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+export function ChatTab({ data }: { data: RepoData | null }) {
+  const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [memoryCount, setMemoryCount] = useState(12);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Active provider — loaded from /api/settings/keys, defaults to gemini-1.5-flash
+  const [provider, setProvider] = useState<AIProvider>("gemini");
+  const [model, setModel] = useState<string>("gemini-1.5-flash");
+
+  const repoId = data ? `${data.context.owner}/${data.context.repo}` : null;
+
+  // Load active provider from settings on mount
+  useEffect(() => {
+    async function loadProvider() {
+      try {
+        const res = await fetch("/api/settings/keys");
+        if (!res.ok) return;
+        const json = await res.json();
+        const savedProvider = json.data?.provider as AIProvider | null;
+        if (savedProvider) {
+          setProvider(savedProvider);
+          // Set a sensible default model for the provider
+          const defaultModels: Record<AIProvider, string> = {
+            gemini:    "gemini-1.5-flash",
+            openai:    "gpt-4o-mini",
+            anthropic: "claude-3-haiku-20240307",
+            groq:      "llama-3.1-8b-instant",
+            ollama:    "llama3.2",
+          };
+          setModel(defaultModels[savedProvider] ?? "gemini-1.5-flash");
+        }
+      } catch {
+        // Non-critical — keep defaults
+      }
+    }
+    loadProvider();
+  }, []);
 
   // Auto-scroll to bottom
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, isLoading]);
+
+  // Load chat history on mount
+  const loadHistory = useCallback(async () => {
+    if (!repoId) {
+      setIsInitializing(false);
+      return;
+    }
+
+    setIsInitializing(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/chat/${encodeURIComponent(repoId)}`);
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || "Failed to load chat history");
+      }
+      const json = await res.json();
+      const history: ChatMessage[] = json.data?.messages ?? [];
+
+      // Filter out system messages for display
+      const displayable = history
+        .filter((m) => m.role !== "system")
+        .map(toDisplayMessage);
+
+      setMessages(displayable);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load history");
+    } finally {
+      setIsInitializing(false);
+    }
+  }, [repoId]);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
 
   const handleSendMessage = async (content: string) => {
-    // Add user message
-    const userMessage: Message = {
-      id: Date.now().toString(),
+    if (!repoId || !data) return;
+
+    // Optimistically add user message
+    const userMsg: DisplayMessage = {
+      id: `user-${Date.now()}`,
       role: "user",
       content,
       timestamp: new Date(),
     };
-
-    setMessages((prev) => [...prev, userMessage]);
+    setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
+    setError(null);
 
-    // Simulate AI response
-    setTimeout(() => {
-      let responseContent = mockResponses.default;
+    try {
+      const res = await fetch(`/api/chat/${encodeURIComponent(repoId)}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: content, provider, model }),
+      });
 
-      // Simple keyword matching for demo
-      const lowerContent = content.toLowerCase();
-      if (lowerContent.includes("structure") || lowerContent.includes("folder")) {
-        responseContent = mockResponses.structure;
-      } else if (lowerContent.includes("performance") || lowerContent.includes("optimize")) {
-        responseContent = mockResponses.performance;
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Failed to get response");
       }
 
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: responseContent,
-        timestamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
+      // Replace optimistic messages with server-confirmed history
+      const serverMessages: ChatMessage[] = json.data?.messages ?? [];
+      const displayable = serverMessages
+        .filter((m) => m.role !== "system")
+        .map(toDisplayMessage);
+      setMessages(displayable);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send message");
+      // Remove the optimistic user message on error
+      setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+    } finally {
       setIsLoading(false);
-      setMemoryCount((prev) => Math.min(prev + 1, 50));
-    }, 1500);
+    }
   };
 
-  const handleClearChat = () => {
-    setMessages([initialMessages[0]]);
-    setMemoryCount(0);
+  const handleClearChat = async () => {
+    if (!repoId) return;
+
+    try {
+      await fetch(`/api/chat/${encodeURIComponent(repoId)}`, {
+        method: "DELETE",
+      });
+      setMessages([]);
+      setError(null);
+    } catch {
+      setError("Failed to clear chat history");
+    }
   };
+
+  const memoryCount = messages.length;
+
+  if (!data) {
+    return (
+      <div className="text-center py-12 text-slate-400">
+        No repository data available
+      </div>
+    );
+  }
 
   return (
     <div className="h-[calc(100vh-280px)] min-h-[500px] flex flex-col">
@@ -118,7 +210,7 @@ export function ChatTab() {
             <MessageSquare className="w-4 h-4 text-[#00e5ff]" />
             <span className="text-sm text-slate-300">Chat with Repository</span>
           </div>
-          <ProviderBadge provider="gemini" />
+          <ProviderBadge provider={provider} />
         </div>
 
         <div className="flex items-center gap-2">
@@ -132,7 +224,7 @@ export function ChatTab() {
           >
             <Brain className="w-3.5 h-3.5" />
             <span className="text-xs font-medium">
-              {memoryCount} messages remembered
+              {memoryCount} message{memoryCount !== 1 ? "s" : ""} remembered
             </span>
           </div>
 
@@ -140,6 +232,7 @@ export function ChatTab() {
             variant="ghost"
             size="sm"
             onClick={handleClearChat}
+            disabled={isLoading || messages.length === 0}
             className="text-slate-400 hover:text-red-400 hover:bg-red-400/10"
           >
             <Trash2 className="w-4 h-4 mr-2" />
@@ -148,37 +241,61 @@ export function ChatTab() {
         </div>
       </div>
 
+      {/* Error Banner */}
+      {error && (
+        <div className="mb-3 flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          <span>{error}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setError(null)}
+            className="ml-auto h-6 px-2 text-red-400 hover:text-red-300"
+          >
+            Dismiss
+          </Button>
+        </div>
+      )}
+
       {/* Chat Messages */}
       <Card className="glass-card flex-1 flex flex-col overflow-hidden">
         <ScrollArea className="flex-1 p-4" ref={scrollRef}>
           <div className="space-y-4">
-            {messages.map((message, index) => (
-              <motion.div
-                key={message.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: index * 0.05 }}
-              >
-                <ChatBubble
-                  content={message.content}
-                  role={message.role}
-                  timestamp={message.timestamp}
-                />
-              </motion.div>
-            ))}
+            {isInitializing ? (
+              <div className="flex items-center justify-center py-12 gap-3 text-slate-400">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span className="text-sm">Loading chat history…</span>
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="text-center py-12 text-slate-500 text-sm">
+                <MessageSquare className="w-8 h-8 mx-auto mb-3 opacity-40" />
+                <p>No messages yet. Ask something about this repository!</p>
+              </div>
+            ) : (
+              messages.map((message, index) => (
+                <motion.div
+                  key={message.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: Math.min(index * 0.03, 0.3) }}
+                >
+                  <ChatBubble
+                    content={message.content}
+                    role={message.role}
+                    timestamp={message.timestamp}
+                  />
+                </motion.div>
+              ))
+            )}
 
             {isLoading && (
-              <ChatBubble
-                content=""
-                role="assistant"
-                isLoading={true}
-              />
+              <ChatBubble content="" role="assistant" isLoading={true} />
             )}
           </div>
         </ScrollArea>
 
-        {/* Suggested Prompts */}
-        {messages.length < 3 && (
+        {/* Suggested Prompts — only when no messages yet */}
+        {!isInitializing && messages.length === 0 && (
           <div className="px-4 py-3 border-t border-white/[0.08]">
             <p className="text-xs text-slate-500 mb-2">Suggested questions:</p>
             <div className="flex flex-wrap gap-2">
@@ -193,6 +310,7 @@ export function ChatTab() {
                   variant="outline"
                   size="sm"
                   onClick={() => handleSendMessage(prompt)}
+                  disabled={isLoading}
                   className="text-xs border-white/[0.08] hover:bg-white/[0.05] hover:border-[#00e5ff]/30"
                 >
                   <Sparkles className="w-3 h-3 mr-1.5 text-[#00e5ff]" />
@@ -207,17 +325,17 @@ export function ChatTab() {
         <div className="p-4 border-t border-white/[0.08]">
           <ChatInput
             onSend={handleSendMessage}
-            disabled={isLoading}
-            placeholder="Ask about this repository..."
+            disabled={isLoading || isInitializing}
+            placeholder="Ask about this repository…"
           />
           <div className="flex items-center justify-between mt-2">
             <p className="text-xs text-slate-500">
               Powered by{" "}
-              <span className="text-[#00e5ff]">Google Gemini</span>
+              <span className="text-[#00e5ff] font-mono">{model}</span>
             </p>
             <div className="flex items-center gap-1 text-xs text-slate-500">
               <Zap className="w-3 h-3" />
-              <span>Fast response mode</span>
+              <span>Real AI responses</span>
             </div>
           </div>
         </div>

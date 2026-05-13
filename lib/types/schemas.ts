@@ -8,7 +8,7 @@ import type { AIProvider } from "./index";
 /**
  * AI Provider enum
  */
-export const AIProviderSchema = z.enum(["gemini", "openai", "anthropic", "groq"]);
+export const AIProviderSchema = z.enum(["gemini", "openai", "anthropic", "groq", "ollama"]);
 
 /**
  * Repository URL validation
@@ -70,6 +70,7 @@ export const UpdateSettingsSchema = z.object({
       openai: z.string().optional(),
       anthropic: z.string().optional(),
       groq: z.string().optional(),
+      ollama: z.string().optional(),
     })
     .optional(),
 });

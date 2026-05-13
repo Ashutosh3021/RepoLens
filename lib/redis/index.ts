@@ -6,13 +6,8 @@
 import { Redis } from "@upstash/redis";
 import { cacheDb } from "../db";
 
-// Initialize Redis client
-const redis = process.env.UPSTASH_REDIS_REST_URL
-  ? new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
-    })
-  : null;
+// Initialize Redis client (temporarily disabled)
+const redis = null as unknown as Redis | null;
 
 const DEFAULT_TTL = 60 * 60 * 24; // 24 hours in seconds
 
