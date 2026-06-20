@@ -21,6 +21,8 @@ A modern, dark-themed web application for AI-powered GitHub repository analysis.
 - **Deployment Guides**: Step-by-step deployment instructions for multiple platforms - so you can finally deploy that side project that's been sitting in your drafts
 - **MCP Server**: Model Context Protocol integration configuration - sounds fancy, works great
 - **Security Audit**: Automated security analysis (coming eventually, we promise)
+- **Full Profile Analysis**: Deep dive into GitHub profiles with 10-category scoring, visualizations, job role suggestions, and improvement roadmaps
+- **Job Hunt Mode**: Personalized job hunting toolkit based on your profile analysis - LinkedIn search URLs, recruiter discovery, network tips, and editable cold DM templates
 
 ---
 
@@ -84,6 +86,7 @@ npm start
 my-app/
 ├── app/                      # Next.js App Router
 │   ├── dashboard/           # Dashboard page with tabs
+│   ├── profile/             # Full Profile Analysis page
 │   ├── settings/            # Settings page
 │   ├── globals.css          # Global styles & design system
 │   ├── layout.tsx           # Root layout with fonts
@@ -91,6 +94,8 @@ my-app/
 ├── components/
 │   ├── ui/                  # shadcn/ui components
 │   ├── dashboard-tabs/      # Dashboard tab components
+│   ├── profile-analysis/    # Profile analysis components
+│   ├── job-hunt/            # Job Hunt Mode components
 │   ├── navbar.tsx           # Navigation bar
 │   ├── code-block.tsx       # Syntax-highlighted code blocks
 │   ├── chat-bubble.tsx      # Chat message bubbles
@@ -99,6 +104,9 @@ my-app/
 │   ├── repo-card.tsx        # Repository card component
 │   ├── badge-strip.tsx      # Shields.io-style badges
 │   └── provider-selector.tsx # AI provider selector
+├── hooks/                    # Custom React hooks
+│   ├── useProfileAnalysis.ts# Profile analysis state hook
+│   └── useJobHunt.ts        # Job Hunt data generation hook
 ├── services/                 # The actual backend magic
 │   ├── llm.ts              # AI provider service
 │   ├── github.ts           # GitHub scraper
@@ -130,7 +138,15 @@ my-app/
    - Sidebar with repo stats (stars, language, commits, contributors)
    - 7 tabs: Overview, Score, Diagrams, README, Chat, Deploy, MCP
    
-3. **Settings** (`/settings`)
+3. **Profile Analysis** (`/profile`)
+   - Full 10-category GitHub profile analysis
+   - Profile hero summary with overall score and letter grade
+   - Visualizations (languages, activity, project strengths)
+   - Suggested job roles with match percentages
+   - Personalized improvement roadmap
+   - **Job Hunt Mode** button to launch personalized toolkit
+   
+4. **Settings** (`/settings`)
    - GitHub OAuth connection status
    - API key management for AI providers (your money, your keys)
    - Model selection per provider
@@ -149,6 +165,23 @@ my-app/
 - **CodeBlock**: Syntax-highlighted code with copy button (you're welcome, lazy developers)
 - **BadgeStrip**: Shields.io-style badges for README
 - **ProviderSelector**: AI provider dropdown with model selection
+
+- **Profile Analysis Components**:
+  - `ProfileAnalysis`: Main profile analysis page wrapper
+  - `ProfileHeroSummary`: Hero section with overall score and profile details
+  - `CategoryCard`: Expandable card for each analysis category
+  - `ProfileVisualizations`: Charts and visualizations
+  - `JobRolesSection`: Suggested job roles with match percentages
+  - `RoadmapTable`: Actionable improvement roadmap
+  - `ExportButton`: Export analysis results
+
+- **Job Hunt Mode Components**:
+  - `JobHuntDashboard`: Main job hunt dashboard with tabs
+  - `SearchLinksSection`: Personalized LinkedIn job search URLs
+  - `RecruiterDiscoverySection`: Recruiter and hiring manager discovery links
+  - `NetworkSection`: Alumni and network leverage links
+  - `TipsSection`: Profile visibility and algorithm optimization tips
+  - `ColdDMSection`: Editable cold outreach message template
 
 ---
 
