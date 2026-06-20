@@ -50,6 +50,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { RepoData } from "@/lib/types";
+import { ProfileAnalysisDashboard } from "@/components/profile-analysis/ProfileAnalysisDashboard";
+import { UserSearch } from "lucide-react";
 
 const tabs = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -59,6 +61,7 @@ const tabs = [
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "deploy", label: "Deploy", icon: Rocket },
   { id: "mcp", label: "MCP", icon: Server },
+  { id: "profile", label: "Profile", icon: UserSearch },
 ];
 
 function DashboardContent() {
@@ -353,6 +356,12 @@ function DashboardContent() {
 
                 <TabsContent value="mcp" className="mt-0">
                   <McpTab data={repoData} />
+                </TabsContent>
+
+                <TabsContent value="profile" className="mt-0">
+                  <ProfileAnalysisDashboard
+                    initialUsername={repoData?.context?.owner}
+                  />
                 </TabsContent>
               </motion.div>
             </Tabs>

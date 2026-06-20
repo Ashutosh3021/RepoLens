@@ -19,6 +19,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ProviderSelector } from "@/components/provider-selector";
 import type { AIProvider } from "@/lib/types";
+import { useSession, signIn } from "next-auth/react";
 import {
   Search,
   Sparkles,
@@ -39,14 +40,14 @@ import {
 // ─── Static content ────────────────────────────────────────────────────────────
 
 const features = [
-  { icon: Sparkles,     title: "AI Explanation",    description: "Get instant, natural language explanations of any codebase",          color: "#00e5ff" },
-  { icon: BarChart3,    title: "Score /10",          description: "Multi-dimensional repository scoring across 6 key areas",             color: "#7c3aed" },
-  { icon: GitGraph,     title: "Mermaid Diagrams",   description: "Auto-generated architecture and workflow visualizations",             color: "#22c55e" },
-  { icon: FileText,     title: "README Generator",   description: "AI-powered README creation with live markdown preview",               color: "#f59e0b" },
-  { icon: MessageSquare,title: "Chat with Repo",     description: "Ask questions and get contextual answers about the code",             color: "#ec4899" },
-  { icon: Rocket,       title: "Deploy Guide",       description: "Step-by-step deployment instructions for any platform",               color: "#38bdf8" },
-  { icon: Server,       title: "MCP Server",         description: "Model Context Protocol integration for AI assistants",                color: "#a855f7" },
-  { icon: Shield,       title: "Security Audit",     description: "Automated security analysis and vulnerability detection",             color: "#ef4444" },
+  { icon: Sparkles,     title: "AI Explanation",       description: "Get instant, natural language explanations of any codebase",          color: "#00e5ff" },
+  { icon: BarChart3,    title: "Score /10",             description: "Multi-dimensional repository scoring across 6 key areas",             color: "#7c3aed" },
+  { icon: GitGraph,     title: "Mermaid Diagrams",      description: "Auto-generated architecture and workflow visualizations",             color: "#22c55e" },
+  { icon: FileText,     title: "README Generator",      description: "AI-powered README creation with live markdown preview",               color: "#f59e0b" },
+  { icon: MessageSquare,title: "Chat with Repo",        description: "Ask questions and get contextual answers about the code",             color: "#ec4899" },
+  { icon: Rocket,       title: "Deploy Guide",          description: "Step-by-step deployment instructions for any platform",               color: "#38bdf8" },
+  { icon: Server,       title: "MCP Server",            description: "Model Context Protocol integration for AI assistants",                color: "#a855f7" },
+  { icon: Shield,       title: "Profile Deep Dive",     description: "10-category GitHub profile analysis with job role matching & roadmap", color: "#10b981" },
 ];
 
 const steps = [
@@ -71,6 +72,8 @@ const DEFAULT_MODEL: Record<AIProvider, string> = {
 
 export default function LandingPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
+  const isLoggedIn = !!session;
 
   const [repoUrl, setRepoUrl]           = useState("");
   const [showPicker, setShowPicker]     = useState(false);
@@ -343,16 +346,34 @@ export default function LandingPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.4 }}
-            className="mt-8"
+            className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3"
           >
-            <Button
-              variant="outline"
-              size="lg"
-              className="border-white/[0.08] hover:bg-white/[0.05] text-slate-300"
-            >
-              <Github className="w-5 h-5 mr-2" />
-              Continue with GitHub
-            </Button>
+            {status === "loading" ? (
+              <div className="h-11 w-52 rounded-lg bg-white/[0.05] animate-pulse" />
+            ) : isLoggedIn ? (
+              /* Signed in → go straight to profile analysis */
+              <Button
+                asChild
+                size="lg"
+                className="bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-semibold px-6"
+              >
+                <a href="/profile">
+                  <BarChart3 className="w-5 h-5 mr-2" />
+                  Full Profile Analysis
+                </a>
+              </Button>
+            ) : (
+              /* Not signed in → trigger GitHub OAuth */
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={() => signIn("github", { callbackUrl: "/profile" })}
+                className="border-white/[0.08] hover:bg-white/[0.05] text-slate-300"
+              >
+                <Github className="w-5 h-5 mr-2" />
+                Continue with GitHub
+              </Button>
+            )}
           </motion.div>
         </div>
       </section>
@@ -473,9 +494,10 @@ export default function LandingPage() {
                   variant="outline"
                   size="lg"
                   className="border-white/[0.08] hover:bg-white/[0.05] text-slate-300"
+                  onClick={() => isLoggedIn ? router.push("/profile") : signIn("github", { callbackUrl: "/profile" })}
                 >
                   <Github className="w-5 h-5 mr-2" />
-                  View on GitHub
+                  {isLoggedIn ? "My Profile Analysis" : "Connect GitHub"}
                 </Button>
               </div>
             </div>
