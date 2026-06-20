@@ -1,12 +1,10 @@
 /**
  * API Route: POST /api/profile/analyze
- * Fetches a GitHub user profile + all repos, runs scoring engine,
+ * Fetches a GitHub user profile + repos, runs the scoring engine,
  * and returns FullProfileAnalysis.
  *
- * NOTE: We intentionally do NOT import the SQLite cache here.
- * The db module opens a file at /tmp/repolens-data which may not exist
- * on all platforms. The profile analysis is fast enough without caching
- * (GitHub API ≈ 2-4s), and the browser can cache via sessionStorage.
+ * No SQLite/Redis imports — avoids the better-sqlite3 native addon
+ * crash on Vercel serverless. The browser caches results in sessionStorage.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -14,16 +12,27 @@ import { z } from "zod";
 import { fetchProfileData } from "@/lib/githubProfile";
 import { computeFullProfileAnalysis } from "@/lib/profileScoring";
 
+// Tell Vercel to allow up to 30s for this route.
+// On Hobby plan the max is 10s — sign in with GitHub for faster requests.
+export const maxDuration = 30;
+
 const Schema = z.object({
   username: z.string().min(1).max(39).trim(),
-  forceRefresh: z.boolean().optional().default(false),
 });
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const parsed = Schema.safeParse(body);
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { success: false, error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
 
+    const parsed = Schema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { success: false, error: "Invalid username — must be 1–39 characters." },
@@ -33,7 +42,7 @@ export async function POST(request: NextRequest) {
 
     const { username } = parsed.data;
 
-    // Use OAuth token if passed via header (for higher GitHub rate limits)
+    // OAuth token → 5000/hr rate limit vs 60/hr unauthenticated
     const token =
       request.headers.get("x-github-token") ||
       process.env.GITHUB_TOKEN ||
@@ -41,7 +50,7 @@ export async function POST(request: NextRequest) {
 
     const isAuthenticated = !!token;
 
-    // Fetch profile + all repos from GitHub
+    // Fetch profile + repos from GitHub
     const { profile, repos, error, rateLimited } = await fetchProfileData(username, token);
 
     if (error || !profile || !repos) {
@@ -55,11 +64,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Run scoring engine (pure computation, ~5ms)
+    // Pure computation — no I/O, ~5ms
     const analysis = computeFullProfileAnalysis(profile, repos, isAuthenticated);
 
-    // Strip raw repos array from response — it can be 500+ objects.
-    // All display data is already pre-computed inside analysis.visualizations.
+    // Strip raw repos array — not needed by the UI, keeps payload small
     const { repos: _raw, ...payload } = analysis;
 
     return NextResponse.json({ success: true, data: payload });
@@ -76,7 +84,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET is not needed without a cache — keep it as a no-op to avoid 405s
 export async function GET() {
   return NextResponse.json(
     { success: false, error: "Use POST /api/profile/analyze" },

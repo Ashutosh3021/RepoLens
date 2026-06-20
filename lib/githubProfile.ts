@@ -48,7 +48,7 @@ export async function fetchGitHubProfile(
   return ghFetch<GitHubUserProfile>(`/users/${username}`, token);
 }
 
-/** Fetch ALL public repos (handles pagination up to 500 repos) */
+/** Fetch ALL public repos (handles pagination, capped at 200 for Vercel compatibility) */
 export async function fetchAllRepos(
   username: string,
   token?: string | null
@@ -56,6 +56,7 @@ export async function fetchAllRepos(
   const allRepos: GitHubRepo[] = [];
   let page = 1;
   const perPage = 100;
+  const MAX_REPOS = 200; // cap at 200 — enough for accurate scoring, safe on Vercel
 
   while (true) {
     const result = await ghFetch<GitHubRepo[]>(
@@ -65,11 +66,11 @@ export async function fetchAllRepos(
     if (result.error) return { error: result.error, rateLimited: result.rateLimited };
     const batch = result.data ?? [];
     allRepos.push(...batch);
-    if (batch.length < perPage || allRepos.length >= 500) break;
+    if (batch.length < perPage || allRepos.length >= MAX_REPOS) break;
     page++;
   }
 
-  return { data: allRepos };
+  return { data: allRepos.slice(0, MAX_REPOS) };
 }
 
 /** Fetch profile + repos in parallel */

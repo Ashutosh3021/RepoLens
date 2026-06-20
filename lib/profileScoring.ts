@@ -66,8 +66,11 @@ function scoreProfileBasics(p: GitHubUserProfile): CategoryScore {
 function scoreActivityConsistency(p: GitHubUserProfile, repos: GitHubRepo[]): CategoryScore {
   const now = Date.now();
   const ageDays = (now - new Date(p.created_at).getTime()) / 86400000;
-  const pushes = repos.map(r => new Date(r.pushed_at).getTime());
-  const lastPush = pushes.length ? Math.max(...pushes) : 0;
+  // Use reduce instead of Math.max(...array) — safe for any array size
+  const lastPush = repos.reduce((best, r) => {
+    const t = new Date(r.pushed_at).getTime();
+    return t > best ? t : best;
+  }, 0);
   const daysSince = lastPush ? (now - lastPush) / 86400000 : 999;
   const ms = (d: number) => d * 24 * 60 * 60 * 1000;
   const a90  = repos.filter(r => now - new Date(r.pushed_at).getTime() < ms(90)).length;
@@ -112,15 +115,21 @@ function scoreRepositoryAnalysis(repos: GitHubRepo[]): CategoryScore {
 
 // ─── 4. Technical Depth (12%) ────────────────────────────────────────────────
 function scoreTechnicalDepth(repos: GitHubRepo[]): CategoryScore {
-  const langs    = new Set(repos.map(r => r.language).filter(Boolean));
-  const topics   = new Set(repos.flatMap(r => r.topics ?? []));
+  const langs  = new Set<string>();
+  const topics = new Set<string>();
+  for (const r of repos) {
+    if (r.language) langs.add(r.language);
+    for (const t of r.topics ?? []) topics.add(t);
+  }
   const advanced = ["kubernetes","docker","terraform","graphql","microservices","machine-learning","deep-learning","blockchain","webassembly","rust","go","elixir"];
-  const adv      = [...topics].filter(t => advanced.some(a => t.includes(a))).length;
-  const large    = repos.filter(r => r.size > 5000).length;
+  const advList: string[] = [];
+  for (const t of topics) if (advanced.some(a => t.includes(a))) advList.push(t);
+  const adv   = advList.length;
+  const large = repos.filter(r => r.size > 5000).length;
   const bd: SubCriteria[] = [
     mk("Language Diversity",   langs.size > 8 ? 25 : langs.size > 5 ? 20 : langs.size > 3 ? 14 : langs.size > 1 ? 8 : 4, 25, `${langs.size} languages: ${[...langs].slice(0,5).join(", ")}`),
     mk("Topic Coverage",       clamp(topics.size * 2, 0, 20), 20, `${topics.size} unique topics`),
-    mk("Advanced Technologies",clamp(adv * 5, 0, 25), 25, adv > 0 ? `Found: ${[...topics].filter(t=>advanced.some(a=>t.includes(a))).slice(0,4).join(", ")}` : "No advanced tech detected"),
+    mk("Advanced Technologies",clamp(adv * 5, 0, 25), 25, adv > 0 ? `Found: ${advList.slice(0,4).join(", ")}` : "No advanced tech detected"),
     mk("Project Complexity",   clamp(large * 3, 0, 20), 20, `${large} large repos (>5MB)`),
     mk("Original Starred Work",clamp(repos.filter(r => !r.fork && r.stargazers_count > 5).length * 3, 0, 10), 10, `${repos.filter(r => !r.fork && r.stargazers_count > 5).length} starred originals`),
   ];
@@ -239,12 +248,14 @@ function scoreProjectDiversity(repos: GitHubRepo[]): CategoryScore {
 // ─── 10. Open Source Contribution (5%) ───────────────────────────────────────
 function scoreOpenSourceContribution(repos: GitHubRepo[]): CategoryScore {
   const forked = repos.filter(r => r.fork);
-  const topics = new Set(repos.flatMap(r => r.topics ?? []));
-  const osKw   = ["open-source","oss","hacktoberfest","good-first-issue","help-wanted"];
-  const osHits = [...topics].filter(t => osKw.some(k => t.includes(k))).length;
+  const topics = new Set<string>();
+  for (const r of repos) for (const t of r.topics ?? []) topics.add(t);
+  const osKw  = ["open-source","oss","hacktoberfest","good-first-issue","help-wanted"];
+  let osHits  = 0;
+  for (const t of topics) if (osKw.some(k => t.includes(k))) osHits++;
   const bd: SubCriteria[] = [
     mk("Forked Contributions", forked.length > 20 ? 40 : forked.length > 10 ? 30 : forked.length > 4 ? 18 : forked.length > 0 ? 8 : 0, 40, `${forked.length} forked/contributed repos`),
-    mk("OS Community Signals", clamp(osHits * 12, 0, 30), 30, osHits > 0 ? `OS topics found` : "No Hacktoberfest/OSS topics"),
+    mk("OS Community Signals", clamp(osHits * 12, 0, 30), 30, osHits > 0 ? "OS topics found" : "No Hacktoberfest/OSS topics"),
     mk("Public Originals",     clamp(repos.filter(r => !r.fork).length * 2, 0, 30), 30, `${repos.filter(r => !r.fork).length} original public repos`),
   ];
   const recs = [];
@@ -255,9 +266,11 @@ function scoreOpenSourceContribution(repos: GitHubRepo[]): CategoryScore {
 
 // ─── Job Role Matcher ─────────────────────────────────────────────────────────
 function detectJobRoles(repos: GitHubRepo[]): JobRole[] {
-  const topics = repos.flatMap(r => r.topics ?? []);
-  const langs  = repos.map(r => r.language?.toLowerCase()).filter(Boolean) as string[];
-  const all    = [...topics, ...langs];
+  const all: string[] = [];
+  for (const r of repos) {
+    for (const t of r.topics ?? []) all.push(t.toLowerCase());
+    if (r.language) all.push(r.language.toLowerCase());
+  }
   const defs: Array<{ title: string; required: string[]; salary: string }> = [
     { title: "Frontend Engineer",       required: ["react","typescript","css","html","vue","nextjs","tailwind"],    salary: "$80k–$160k" },
     { title: "Backend Engineer",        required: ["node","python","java","go","rust","express","django","fastapi"], salary: "$85k–$170k" },
@@ -281,7 +294,8 @@ function detectJobRoles(repos: GitHubRepo[]): JobRole[] {
 
 // ─── Benchmark ───────────────────────────────────────────────────────────────
 function computeBenchmark(score: number, repos: GitHubRepo[]): BenchmarkData {
-  const t = new Set(repos.flatMap(r => r.topics ?? []));
+  const t = new Set<string>();
+  for (const r of repos) for (const topic of r.topics ?? []) t.add(topic);
   let domain = "General";
   if (["react","vue","angular","nextjs","frontend"].some(x => t.has(x))) domain = "Web Dev";
   else if (["machine-learning","deep-learning","pytorch","tensorflow"].some(x => t.has(x))) domain = "ML/AI";
