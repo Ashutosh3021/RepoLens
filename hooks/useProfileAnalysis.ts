@@ -43,14 +43,12 @@ export function useProfileAnalysis() {
       setState({ status: "fetching-profile", progress: 15, progressLabel: "Fetching GitHub profile…", analysis: null, error: null });
 
       try {
-        // Simulate stepped progress for UX
         const token = (session as { accessToken?: string })?.accessToken;
 
-        // Step 1
+        // Step 1 — show fetching profile UI
         setStep(STEPS[0]);
-        await delay(300);
 
-        // Step 2
+        // Step 2 — show loading repos UI
         setStep(STEPS[1]);
 
         const res = await fetch("/api/profile/analyze", {
@@ -62,24 +60,37 @@ export function useProfileAnalysis() {
           body: JSON.stringify({ username: username.trim(), forceRefresh }),
         });
 
-        // Step 3
-        setStep(STEPS[2]);
-        await delay(200);
-
-        const json = await res.json();
+        // Read the body ONCE immediately — before any awaits that could let the
+        // stream be garbage collected.
+        let json: { success: boolean; data?: FullProfileAnalysis; error?: string };
+        try {
+          const text = await res.text();
+          json = JSON.parse(text);
+        } catch {
+          setState(prev => ({
+            ...prev,
+            status: "error",
+            error: `Server returned an unreadable response (HTTP ${res.status}). Check server logs.`,
+          }));
+          return;
+        }
 
         if (!res.ok || !json.success) {
           setState(prev => ({
             ...prev,
             status: "error",
-            error: json.error ?? "Analysis failed",
+            error: json.error ?? `Server error (HTTP ${res.status})`,
           }));
           return;
         }
 
-        // Step 4
-        setStep(STEPS[3]);
+        // Step 3 — brief UI pause to show "computing scores" step
+        setStep(STEPS[2]);
         await delay(200);
+
+        // Step 4 — brief UI pause to show "building roadmap" step
+        setStep(STEPS[3]);
+        await delay(150);
 
         // Complete
         setState({

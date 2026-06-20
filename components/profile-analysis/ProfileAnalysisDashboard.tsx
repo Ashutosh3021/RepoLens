@@ -360,7 +360,7 @@ export function ProfileAnalysisDashboard({ initialUsername }: Props) {
         {/* Footer */}
         <div className="pb-8 text-center text-xs text-slate-600">
           Analysis based on publicly available GitHub data ·{" "}
-          <span className="text-[#00e5ff]">{analysis.repos.length} repos</span> analysed ·{" "}
+          <span className="text-[#00e5ff]">{analysis.profile.public_repos} repos</span> analysed ·{" "}
           {analysis.isAuthenticated ? "Authenticated request" : "Unauthenticated — sign in for faster results"}
         </div>
       </div>

@@ -145,7 +145,7 @@ export interface FullProfileAnalysis {
   roadmap: RoadmapItem[];
   // Raw data for display
   profile: GitHubUserProfile;
-  repos: GitHubRepo[];
+  repos: GitHubRepo[];        // stripped before API response, may be empty
   totalStars: number;
   totalForks: number;
   primaryLanguages: string[];

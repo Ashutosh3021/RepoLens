@@ -344,39 +344,50 @@ export function computeFullProfileAnalysis(
   repos: GitHubRepo[],
   isAuthenticated: boolean
 ): FullProfileAnalysis {
-  const categories: Record<CategoryKey, CategoryScore> = {
-    profileBasics:          scoreProfileBasics(profile),
-    activityConsistency:    scoreActivityConsistency(profile, repos),
-    repositoryAnalysis:     scoreRepositoryAnalysis(repos),
-    technicalDepth:         scoreTechnicalDepth(repos),
-    communityImpact:        scoreCommunityImpact(profile, repos),
-    learningGrowth:         scoreLearningGrowth(repos),
-    collaborationSkills:    scoreCollaborationSkills(profile, repos),
-    professionalPresence:   scoreProfessionalPresence(profile, repos),
-    projectDiversity:       scoreProjectDiversity(repos),
-    openSourceContribution: scoreOpenSourceContribution(repos),
-  };
+  // Sanitise repos — filter out any items with missing required fields
+  const safeRepos = repos.filter(r =>
+    r && typeof r.name === "string" && typeof r.stargazers_count === "number"
+  );
+
+  let categories: Record<CategoryKey, CategoryScore>;
+  try {
+    categories = {
+      profileBasics:          scoreProfileBasics(profile),
+      activityConsistency:    scoreActivityConsistency(profile, safeRepos),
+      repositoryAnalysis:     scoreRepositoryAnalysis(safeRepos),
+      technicalDepth:         scoreTechnicalDepth(safeRepos),
+      communityImpact:        scoreCommunityImpact(profile, safeRepos),
+      learningGrowth:         scoreLearningGrowth(safeRepos),
+      collaborationSkills:    scoreCollaborationSkills(profile, safeRepos),
+      professionalPresence:   scoreProfessionalPresence(profile, safeRepos),
+      projectDiversity:       scoreProjectDiversity(safeRepos),
+      openSourceContribution: scoreOpenSourceContribution(safeRepos),
+    };
+  } catch (err) {
+    console.error("Scoring error:", err);
+    throw new Error(`Scoring failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
   const overallScore = clamp(Math.round(
     (Object.entries(categories) as [CategoryKey, CategoryScore][])
       .reduce((sum, [, cat]) => sum + cat.score * cat.weight, 0)
   ));
-  const totalStars = repos.reduce((s, r) => s + r.stargazers_count, 0);
-  const totalForks = repos.reduce((s, r) => s + r.forks_count, 0);
+  const totalStars = safeRepos.reduce((s, r) => s + r.stargazers_count, 0);
+  const totalForks = safeRepos.reduce((s, r) => s + r.forks_count, 0);
   const lc = new Map<string, number>();
-  for (const r of repos) if (r.language) lc.set(r.language, (lc.get(r.language) ?? 0) + 1);
+  for (const r of safeRepos) if (r.language) lc.set(r.language, (lc.get(r.language) ?? 0) + 1);
   const primaryLanguages = [...lc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([l]) => l);
   const tc = new Map<string, number>();
-  for (const r of repos) for (const t of r.topics ?? []) tc.set(t, (tc.get(t) ?? 0) + 1);
+  for (const r of safeRepos) for (const t of r.topics ?? []) tc.set(t, (tc.get(t) ?? 0) + 1);
   const topTopics = [...tc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([t]) => t);
   const accountAge = Math.floor((Date.now() - new Date(profile.created_at).getTime()) / 86400000);
   return {
     username: profile.login, generatedAt: new Date().toISOString(),
     overallScore, letterGrade: getLetterGrade(overallScore),
-    benchmark: computeBenchmark(overallScore, repos),
-    categories, suggestedRoles: detectJobRoles(repos),
-    visualizations: buildVisualizations(repos, categories),
+    benchmark: computeBenchmark(overallScore, safeRepos),
+    categories, suggestedRoles: detectJobRoles(safeRepos),
+    visualizations: buildVisualizations(safeRepos, categories),
     roadmap: buildRoadmap(categories),
-    profile, repos, totalStars, totalForks,
+    profile, repos: safeRepos, totalStars, totalForks,
     primaryLanguages, topTopics, accountAge, isAuthenticated,
   };
 }

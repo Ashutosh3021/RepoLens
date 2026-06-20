@@ -61,14 +61,29 @@ export async function POST(request: NextRequest) {
     // Compute scores
     const analysis = computeFullProfileAnalysis(profile, repos, isAuthenticated);
 
-    // Cache and return
-    await cache.set(cacheKey, analysis, CACHE_TTL);
+    // Strip the full repos array before caching — it can be 500+ items and
+    // bloats the SQLite cache. The display layer only needs the top repos
+    // already embedded in visualizations.projectStrengths.
+    const { repos: _stripped, ...analysisToStore } = analysis;
 
-    return NextResponse.json({ success: true, data: analysis, cached: false });
+    // Cache and return (without the raw repos array)
+    await cache.set(cacheKey, analysisToStore, CACHE_TTL);
+
+    return NextResponse.json({ success: true, data: analysisToStore, cached: false });
   } catch (err) {
-    console.error("Profile analysis error:", err);
+    // Log the full error server-side for debugging
+    console.error("[/api/profile/analyze] Unhandled error:", err);
+    if (err instanceof Error) {
+      console.error("Stack:", err.stack);
+    }
+    // Always return valid JSON — never let the body be empty
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : "Unknown error" },
+      {
+        success: false,
+        error: err instanceof Error
+          ? `Server error: ${err.message}`
+          : "An unexpected server error occurred. Check server logs.",
+      },
       { status: 500 }
     );
   }
