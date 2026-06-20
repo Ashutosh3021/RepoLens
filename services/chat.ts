@@ -8,67 +8,90 @@ import { chatDb } from "../lib/db";
 import { llmService } from "./llm";
 
 /**
- * System prompt for repository chat
- * @param context - Repository context
- * @param explanation - AI explanation of the repository
+ * System prompt for repository chat — rich, repo-specific context
  */
 function buildSystemPrompt(context: RepoContext, explanation: string): string {
-  return `You are RepoLens, an AI assistant specialized in analyzing GitHub repositories. You have access to detailed information about the repository ${context.metadata.fullName}.
+  const languageInfo = context.languages
+    ? Object.entries(context.languages)
+        .slice(0, 5)
+        .map(([lang]) => lang)
+        .join(", ")
+    : context.metadata.language || "Unknown";
 
-Repository Overview:
-${explanation.slice(0, 1500)}
+  const depsList = context.dependencies.length > 0
+    ? context.dependencies
+        .slice(0, 20)
+        .map((d) => `${d.name}@${d.version}${d.isDev ? " (dev)" : ""}`)
+        .join(", ")
+    : "None detected";
 
-Key Files:
-${context.importantFiles.slice(0, 5).map((f) => `- ${f.path}`).join("\n")}
+  const fileTree = context.tree.tree
+    .slice(0, 80)
+    .map((f) => f.path)
+    .join("\n");
 
-Tech Stack:
+  const keyFileContents = context.importantFiles
+    .slice(0, 5)
+    .map((f) => `### ${f.path}\n\`\`\`\n${f.content.slice(0, 600)}\n\`\`\``)
+    .join("\n\n");
+
+  return `You are RepoLens AI, an expert assistant for the GitHub repository **${context.metadata.fullName}**.
+
+## Repository Summary
+${explanation.slice(0, 2000)}
+
+## Tech Stack
+- Languages: ${languageInfo}
 - Primary Language: ${context.metadata.language || "Unknown"}
-- Stars: ${context.metadata.stars}
+- Stars: ${context.metadata.stars} | Forks: ${context.metadata.forks}
 - License: ${context.metadata.license || "N/A"}
+- Topics: ${context.metadata.topics.slice(0, 8).join(", ") || "N/A"}
 
-Instructions:
-1. Answer questions about the codebase accurately and concisely
-2. Reference specific files when relevant
-3. Explain technical concepts clearly
-4. If unsure, acknowledge limitations
-5. Provide code examples when helpful
-6. Maintain context from previous messages
+## Dependencies
+${depsList}
 
-You are helpful, knowledgeable, and focused on helping users understand this repository.`;
-}
+## File Structure
+\`\`\`
+${fileTree}
+\`\`\`
 
-/**
- * Format chat history for LLM context
- * @param messages - Chat messages
- */
-function formatChatHistory(
-  messages: ChatMessage[]
-): Array<{ role: "user" | "assistant"; content: string }> {
-  return messages.map((msg) => ({
-    role: msg.role === "user" ? "user" : "assistant",
-    content: msg.content,
-  }));
+## Key File Contents
+${keyFileContents}
+
+## Instructions
+- Answer questions specifically about THIS repository using the context above
+- Reference actual file names, functions, and components from the codebase
+- Provide accurate, detailed technical answers
+- When asked about code, explain how it actually works in this repo
+- For "how to" questions, give concrete steps based on the actual codebase
+- Keep answers focused and practical
+- If you don't know something specific about this repo, say so rather than guessing`;
 }
 
 /**
  * Get chat history for a repository
- * @param repoId - Repository identifier (owner/repo)
- * @param limit - Maximum number of messages
  */
-export function getChatHistory(repoId: string, limit: number = 20): ChatMessage[] {
-  const messages = chatDb.getHistory(repoId, limit) as ChatMessage[];
-  return messages;
+export function getChatHistory(repoId: string, limit: number = 50): ChatMessage[] {
+  const messages = chatDb.getHistory(repoId, limit) as Array<{
+    id: number;
+    repo_id: string;
+    role: string;
+    content: string;
+    timestamp: string;
+  }>;
+
+  // Map DB column names to the ChatMessage type
+  return messages.map((m) => ({
+    id: m.id,
+    repoId: m.repo_id,
+    role: m.role as "user" | "assistant" | "system",
+    content: m.content,
+    createdAt: m.timestamp,
+  }));
 }
 
 /**
- * Send a message and get AI response
- * @param repoId - Repository identifier
- * @param message - User message
- * @param context - Repository context
- * @param explanation - AI explanation of the repository
- * @param provider - AI provider
- * @param model - Model name
- * @param userId - Optional user ID
+ * Send a message and get AI response using proper message-history format
  */
 export async function sendMessage(
   repoId: string,
@@ -81,66 +104,64 @@ export async function sendMessage(
 ): Promise<{ response: string; messages: ChatMessage[] }> {
   console.log(`💬 Sending message for ${repoId}: ${message.slice(0, 50)}...`);
 
-  // Check if provider is registered
   if (!llmService.isRegistered(provider)) {
     throw new Error(
       `Provider ${provider} not registered. Please set the API key in settings.`
     );
   }
 
-  // Save user message
+  // Save user message first
   chatDb.saveMessage(repoId, "user", message, userId);
 
-  // Get recent chat history (last 20 messages)
-  const history = getChatHistory(repoId, 20);
+  // Get recent history (last 30 messages for context window)
+  const historyRaw = getChatHistory(repoId, 30);
 
-  // Build system prompt
+  // Build the rich system prompt
   const systemPrompt = buildSystemPrompt(context, explanation);
 
-  // Format conversation for LLM
-  const conversation = formatChatHistory(history);
+  // Build proper conversation history for the LLM
+  // Exclude system messages and the just-saved user message (passed as current prompt)
+  const conversationHistory = historyRaw
+    .filter((m) => m.role !== "system")
+    .slice(0, -1) // exclude the current user message we just saved
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
 
-  // Create prompt with context
-  const fullPrompt = `System: ${systemPrompt}
-
-Previous conversation:
-${conversation.map((msg) => `${msg.role}: ${msg.content}`).join("\n")}
-
-User: ${message}
-
-Assistant:`;
-
-  // Call LLM
   try {
-    const llmResponse = await llmService.generateCompletion(provider, fullPrompt, {
-      model,
-      temperature: 0.7,
-      maxTokens: 2000,
-    });
+    const llmResponse = await llmService.generateCompletion(
+      provider,
+      message,
+      {
+        model,
+        systemPrompt,
+        temperature: 0.7,
+        maxTokens: 2000,
+        conversationHistory,
+      }
+    );
 
     // Save AI response
     chatDb.saveMessage(repoId, "assistant", llmResponse.content, userId);
 
     console.log(`✅ Response received (${llmResponse.content.length} chars)`);
 
-    // Return updated history
-    const updatedHistory = getChatHistory(repoId, 20);
+    const updatedHistory = getChatHistory(repoId, 50);
 
     return {
       response: llmResponse.content,
       messages: updatedHistory,
     };
   } catch (error) {
-    // Save error message so user knows something went wrong
-    const errorMessage = error instanceof Error 
-      ? `I apologize, but I encountered an error: ${error.message}. Please try again.`
-      : "I apologize, but I encountered an unexpected error. Please try again.";
-    
+    const errorMessage = error instanceof Error
+      ? `Sorry, I encountered an error: ${error.message}. Please try again.`
+      : "Sorry, I encountered an unexpected error. Please try again.";
+
     chatDb.saveMessage(repoId, "assistant", errorMessage, userId);
-    
     console.error("Chat error:", error);
-    
-    const updatedHistory = getChatHistory(repoId, 20);
+
+    const updatedHistory = getChatHistory(repoId, 50);
     return {
       response: errorMessage,
       messages: updatedHistory,
@@ -149,15 +170,65 @@ Assistant:`;
 }
 
 /**
- * Send a message with streaming response
- * @param repoId - Repository identifier
- * @param message - User message
- * @param context - Repository context
- * @param explanation - AI explanation
- * @param provider - AI provider
- * @param model - Model name
- * @param onChunk - Callback for each chunk
- * @param userId - Optional user ID
+ * Clear chat history for a repository
+ */
+export function clearChatHistory(repoId: string): void {
+  console.log(`🗑️ Clearing chat history for ${repoId}`);
+  chatDb.clearHistory(repoId);
+}
+
+/**
+ * Get message count for a repository
+ */
+export function getMessageCount(repoId: string): number {
+  return chatDb.getMessageCount(repoId);
+}
+
+/**
+ * Get all repositories with chat history for a user
+ */
+export function getUserChats(userId: string) {
+  return chatDb.getUserChats(userId);
+}
+
+/**
+ * Initialize system message for a repository (welcome message on first chat)
+ */
+export function initializeSystemMessage(
+  repoId: string,
+  context: RepoContext,
+  explanation: string,
+  userId?: string
+): void {
+  const history = getChatHistory(repoId, 1);
+  if (history.length === 0) {
+    const primaryLang = context.metadata.language || "various technologies";
+    const depCount = context.dependencies.length;
+    const fileCount = context.tree.tree.length;
+
+    const welcomeMessage = `Hi! I'm your AI assistant for **${context.metadata.name}**.
+
+${context.metadata.description ? `> ${context.metadata.description}` : ""}
+
+Here's what I know about this repo:
+- **${fileCount} files** tracked | **${depCount} dependencies** detected
+- Primary language: **${primaryLang}**
+- **${context.contributors.length}** contributors | **${context.metadata.stars.toLocaleString()}** stars
+
+I have full access to the codebase structure, key file contents, and the complete dependency list. Ask me anything about how this code works!
+
+Some things you can ask:
+- "Walk me through the project architecture"
+- "How does authentication work in this codebase?"
+- "What does \`[specific file]\` do?"
+- "How do I add a new feature?"`;
+
+    chatDb.saveMessage(repoId, "assistant", welcomeMessage, userId);
+  }
+}
+
+/**
+ * Send a message with streaming response (simulated via regular completion)
  */
 export async function sendMessageStream(
   repoId: string,
@@ -169,113 +240,15 @@ export async function sendMessageStream(
   onChunk?: (chunk: string) => void,
   userId?: string
 ): Promise<string> {
-  console.log(`💬 Streaming message for ${repoId}...`);
+  const result = await sendMessage(repoId, message, context, explanation, provider, model, userId);
 
-  // Check if provider is registered
-  if (!llmService.isRegistered(provider)) {
-    throw new Error(`Provider ${provider} not registered.`);
-  }
-
-  // Save user message
-  chatDb.saveMessage(repoId, "user", message, userId);
-
-  // Get recent chat history
-  const history = getChatHistory(repoId, 20);
-
-  // Build system prompt
-  const systemPrompt = buildSystemPrompt(context, explanation);
-
-  // Format conversation
-  const conversation = formatChatHistory(history);
-
-  // Create prompt
-  const fullPrompt = `System: ${systemPrompt}
-
-Previous conversation:
-${conversation.map((msg) => `${msg.role}: ${msg.content}`).join("\n")}
-
-User: ${message}
-
-Assistant:`;
-
-  // For now, simulate streaming by calling regular completion
-  // In production, implement actual streaming based on provider
-  const llmResponse = await llmService.generateCompletion(provider, fullPrompt, {
-    model,
-    temperature: 0.7,
-    maxTokens: 2000,
-  });
-
-  // Simulate streaming chunks
   if (onChunk) {
-    const words = llmResponse.content.split(" ");
+    const words = result.response.split(" ");
     for (const word of words) {
       onChunk(word + " ");
-      // Small delay to simulate streaming
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 15));
     }
   }
 
-  // Save AI response
-  chatDb.saveMessage(repoId, "assistant", llmResponse.content, userId);
-
-  return llmResponse.content;
-}
-
-/**
- * Clear chat history for a repository
- * @param repoId - Repository identifier
- */
-export function clearChatHistory(repoId: string): void {
-  console.log(`🗑️ Clearing chat history for ${repoId}`);
-  chatDb.clearHistory(repoId);
-}
-
-/**
- * Get message count for a repository
- * @param repoId - Repository identifier
- */
-export function getMessageCount(repoId: string): number {
-  return chatDb.getMessageCount(repoId);
-}
-
-/**
- * Get all repositories with chat history for a user
- * @param userId - User identifier
- */
-export function getUserChats(userId: string) {
-  return chatDb.getUserChats(userId);
-}
-
-/**
- * Initialize system message for a repository
- * @param repoId - Repository identifier
- * @param context - Repository context
- * @param explanation - AI explanation
- * @param userId - Optional user ID
- */
-export function initializeSystemMessage(
-  repoId: string,
-  context: RepoContext,
-  explanation: string,
-  userId?: string
-): void {
-  // Check if there's already a system message
-  const history = getChatHistory(repoId, 1);
-  if (history.length === 0) {
-    const systemMessage = `Welcome! I'm your AI assistant for analyzing **${context.metadata.name}**. 
-
-This repository ${context.metadata.description ? `"${context.metadata.description}"` : "is an open-source project"} built primarily with ${context.metadata.language || "various technologies"}.
-
-I can help you:
-- Understand the codebase structure
-- Explain specific functions or components
-- Identify key architectural patterns
-- Suggest improvements or best practices
-- Answer questions about the implementation
-
-What would you like to know about this repository?`;
-
-    chatDb.saveMessage(repoId, "assistant", systemMessage, userId);
-  }
+  return result.response;
 }

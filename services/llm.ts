@@ -122,6 +122,7 @@ export class LLMService {
       temperature?: number;
       maxTokens?: number;
       systemPrompt?: string;
+      conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>;
     } = {}
   ): Promise<LLMResponse> {
     const config = this.configs.get(provider);
@@ -136,15 +137,15 @@ export class LLMService {
     try {
       switch (provider) {
         case "gemini":
-          return this.callGemini(prompt, model, temperature, maxTokens, options.systemPrompt);
+          return this.callGemini(prompt, model, temperature, maxTokens, options.systemPrompt, options.conversationHistory);
         case "openai":
-          return this.callOpenAI(prompt, model, temperature, maxTokens, options.systemPrompt, "openai");
+          return this.callOpenAI(prompt, model, temperature, maxTokens, options.systemPrompt, "openai", options.conversationHistory);
         case "anthropic":
-          return this.callAnthropic(prompt, model, temperature, maxTokens, options.systemPrompt);
+          return this.callAnthropic(prompt, model, temperature, maxTokens, options.systemPrompt, options.conversationHistory);
         case "groq":
-          return this.callGroq(prompt, model, temperature, maxTokens, options.systemPrompt);
+          return this.callGroq(prompt, model, temperature, maxTokens, options.systemPrompt, options.conversationHistory);
         case "ollama":
-          return this.callOpenAI(prompt, model, temperature, maxTokens, options.systemPrompt, "ollama");
+          return this.callOpenAI(prompt, model, temperature, maxTokens, options.systemPrompt, "ollama", options.conversationHistory);
         default:
           throw new Error(`Unknown provider: ${provider}`);
       }
@@ -162,7 +163,8 @@ export class LLMService {
     model: string,
     temperature: number,
     maxTokens: number,
-    systemPrompt?: string
+    systemPrompt?: string,
+    conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>
   ): Promise<LLMResponse> {
     const client = this.clients.get("gemini") as GoogleGenerativeAI;
     const modelInstance = client.getGenerativeModel({ model });
@@ -172,37 +174,31 @@ export class LLMService {
       maxOutputTokens: maxTokens,
     };
 
-    let result;
+    // Build Gemini chat history from conversationHistory
+    const history: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = [];
+
     if (systemPrompt) {
-      const chat = modelInstance.startChat({
-        generationConfig,
-        history: [
-          {
-            role: "user",
-            parts: [{ text: systemPrompt }],
-          },
-          {
-            role: "model",
-            parts: [{ text: "I understand. I'll help you with that." }],
-          },
-        ],
-      });
-      result = await chat.sendMessage(prompt);
-    } else {
-      result = await modelInstance.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig,
-      });
+      history.push(
+        { role: "user", parts: [{ text: systemPrompt }] },
+        { role: "model", parts: [{ text: "Understood. I'm ready to help." }] }
+      );
     }
 
-    const response = result.response;
+    if (conversationHistory && conversationHistory.length > 0) {
+      for (const msg of conversationHistory) {
+        history.push({
+          role: msg.role === "user" ? "user" : "model",
+          parts: [{ text: msg.content }],
+        });
+      }
+    }
+
+    const chat = modelInstance.startChat({ generationConfig, history });
+    const result = await chat.sendMessage(prompt);
+
     return {
-      content: response.text(),
-      usage: {
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
-      },
+      content: result.response.text(),
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
       model,
       provider: "gemini",
     };
@@ -219,13 +215,19 @@ export class LLMService {
     temperature: number,
     maxTokens: number,
     systemPrompt?: string,
-    clientKey: "openai" | "ollama" = "openai"
+    clientKey: "openai" | "ollama" = "openai",
+    conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>
   ): Promise<LLMResponse> {
     const client = this.clients.get(clientKey) as OpenAI;
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
     if (systemPrompt) {
       messages.push({ role: "system", content: systemPrompt });
+    }
+    if (conversationHistory && conversationHistory.length > 0) {
+      for (const msg of conversationHistory) {
+        messages.push({ role: msg.role, content: msg.content });
+      }
     }
     messages.push({ role: "user", content: prompt });
 
@@ -256,16 +258,25 @@ export class LLMService {
     model: string,
     temperature: number,
     maxTokens: number,
-    systemPrompt?: string
+    systemPrompt?: string,
+    conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>
   ): Promise<LLMResponse> {
     const client = this.clients.get("anthropic") as Anthropic;
+
+    const messages: Anthropic.MessageParam[] = [];
+    if (conversationHistory && conversationHistory.length > 0) {
+      for (const msg of conversationHistory) {
+        messages.push({ role: msg.role, content: msg.content });
+      }
+    }
+    messages.push({ role: "user", content: prompt });
 
     const response = await client.messages.create({
       model,
       max_tokens: maxTokens,
       temperature,
       system: systemPrompt,
-      messages: [{ role: "user", content: prompt }],
+      messages,
     });
 
     const content = response.content
@@ -292,13 +303,19 @@ export class LLMService {
     model: string,
     temperature: number,
     maxTokens: number,
-    systemPrompt?: string
+    systemPrompt?: string,
+    conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>
   ): Promise<LLMResponse> {
     const client = this.clients.get("groq") as Groq;
 
     const messages: Groq.Chat.Completions.ChatCompletionMessageParam[] = [];
     if (systemPrompt) {
       messages.push({ role: "system", content: systemPrompt });
+    }
+    if (conversationHistory && conversationHistory.length > 0) {
+      for (const msg of conversationHistory) {
+        messages.push({ role: msg.role, content: msg.content });
+      }
     }
     messages.push({ role: "user", content: prompt });
 

@@ -281,7 +281,7 @@ export async function getFileContent(
 }
 
 // ─── Key Files ────────────────────────────────────────────────────────────────
-// Cap at 8 files, fetch all in one parallel batch (no serial rounds).
+// Cap at 12 files, fetch all in one parallel batch (no serial rounds).
 
 export async function getKeyFiles(
   owner: string,
@@ -292,43 +292,66 @@ export async function getKeyFiles(
   const filePaths = tree.map((f) => f.path);
   const selected: string[] = [];
 
-  // HIGH — config / manifest files
-  const high = [
-    "README.md", "README.rst", "readme.md",
+  // CRITICAL — dependency manifests (must be fetched to parse deps)
+  const manifests = [
     "package.json", "requirements.txt", "Cargo.toml", "go.mod", "pom.xml",
+    "pyproject.toml", "Gemfile", "build.gradle", "composer.json",
+  ];
+  for (const p of manifests) {
+    const found = filePaths.find(
+      (f) => f === p || f.endsWith(`/${p}`) || f.toLowerCase() === p.toLowerCase()
+    );
+    if (found && !selected.includes(found)) selected.push(found);
+  }
+
+  // HIGH — config / docs
+  const high = [
+    "README.md", "README.rst", "readme.md", "README.txt",
     "docker-compose.yml", "Dockerfile",
-    "tsconfig.json", "next.config.js", "next.config.ts", "vite.config.ts",
+    "tsconfig.json", "next.config.js", "next.config.ts",
+    "vite.config.ts", "vite.config.js", "webpack.config.js",
+    ".env.example",
   ];
   for (const p of high) {
-    const found = filePaths.find((f) => f.toLowerCase().endsWith(p.toLowerCase()) || f === p);
+    if (selected.length >= 12) break;
+    const found = filePaths.find(
+      (f) => f === p || f.toLowerCase().endsWith(p.toLowerCase())
+    );
     if (found && !selected.includes(found)) selected.push(found);
-    if (selected.length >= 8) break;
   }
 
   // MEDIUM — entry points
-  if (selected.length < 8) {
-    const medPat = [/^index\.(ts|js|tsx|jsx|py)$/, /^main\.(ts|js|tsx|jsx|py)$/, /^app\.(ts|js|tsx|jsx|py)$/];
+  if (selected.length < 12) {
+    const medPat = [
+      /^(src\/)?index\.(ts|js|tsx|jsx|py)$/,
+      /^(src\/)?main\.(ts|js|tsx|jsx|py|go|rs)$/,
+      /^(src\/)?app\.(ts|js|tsx|jsx|py)$/,
+      /^(app|src)\/page\.(tsx|jsx)$/,
+      /^(app|src)\/layout\.(tsx|jsx)$/,
+    ];
     for (const path of filePaths) {
-      if (selected.length >= 8) break;
+      if (selected.length >= 12) break;
       if (selected.includes(path)) continue;
-      const fn = path.split("/").pop() || "";
-      if (medPat.some((r) => r.test(fn))) selected.push(path);
+      const fn = path.replace(/^.*\//, ""); // basename
+      if (medPat.some((r) => r.test(path) || r.test(fn))) selected.push(path);
     }
   }
 
-  // LOW — any code file
-  if (selected.length < 8) {
-    const exts = [".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs"];
+  // LOW — any meaningful code file
+  if (selected.length < 12) {
+    const exts = [".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".java", ".rb", ".php"];
     for (const path of filePaths) {
-      if (selected.length >= 8) break;
+      if (selected.length >= 12) break;
       if (selected.includes(path)) continue;
-      if (exts.some((e) => path.endsWith(e))) selected.push(path);
+      if (exts.some((e) => path.endsWith(e)) && !path.includes(".min.") && !path.includes(".test.") && !path.includes(".spec.")) {
+        selected.push(path);
+      }
     }
   }
 
-  // Fetch all 8 in a single parallel batch
+  // Fetch all in a single parallel batch
   const results = await Promise.allSettled(
-    selected.slice(0, 8).map((p) => getFileContent(owner, repo, p, token))
+    selected.slice(0, 12).map((p) => getFileContent(owner, repo, p, token))
   );
 
   return {
@@ -364,8 +387,26 @@ export function parseDependenciesFromFiles(keyFiles: FileContent[]): Dependency[
   if (req) {
     const deps: Dependency[] = [];
     for (const line of req.content.split("\n")) {
-      const m = line.match(/^([a-zA-Z0-9_-]+)(?:[==>=<~!]+(.+))?/);
-      if (m && !line.startsWith("#")) deps.push({ name: m[1], version: m[2] || "latest", isDev: false });
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("-")) continue;
+      const m = trimmed.match(/^([a-zA-Z0-9_.-]+)(?:[==>=<~!]+(.+))?/);
+      if (m) deps.push({ name: m[1], version: m[2]?.trim() || "latest", isDev: false });
+    }
+    if (deps.length > 0) return deps;
+  }
+
+  // pyproject.toml
+  const pyproject = keyFiles.find((f) => f.path.endsWith("pyproject.toml"));
+  if (pyproject) {
+    const deps: Dependency[] = [];
+    const depsSection = pyproject.content.match(/\[tool\.poetry\.dependencies\]([\s\S]*?)(?=\[|$)/);
+    if (depsSection) {
+      for (const line of depsSection[1].split("\n")) {
+        const m = line.match(/^([a-zA-Z0-9_.-]+)\s*=\s*"?([^"#\n]+)"?/);
+        if (m && m[1].toLowerCase() !== "python") {
+          deps.push({ name: m[1], version: m[2].replace(/[\^~>=<]/g, "").trim(), isDev: false });
+        }
+      }
     }
     if (deps.length > 0) return deps;
   }
@@ -377,9 +418,42 @@ export function parseDependenciesFromFiles(keyFiles: FileContent[]): Dependency[
     const section = cargo.content.match(/\[dependencies\]([\s\S]*?)(?=\[|$)/);
     if (section) {
       for (const line of section[1].split("\n")) {
-        const m = line.match(/^([a-zA-Z0-9_-]+)\s*=/);
-        if (m) deps.push({ name: m[1], version: "*", isDev: false });
+        const m = line.match(/^([a-zA-Z0-9_-]+)\s*=\s*(?:"([^"]+)"|.*version\s*=\s*"([^"]+)")/);
+        if (m) deps.push({ name: m[1], version: m[2] || m[3] || "*", isDev: false });
       }
+    }
+    const devSection = cargo.content.match(/\[dev-dependencies\]([\s\S]*?)(?=\[|$)/);
+    if (devSection) {
+      for (const line of devSection[1].split("\n")) {
+        const m = line.match(/^([a-zA-Z0-9_-]+)\s*=\s*(?:"([^"]+)"|.*version\s*=\s*"([^"]+)")/);
+        if (m) deps.push({ name: m[1], version: m[2] || m[3] || "*", isDev: true });
+      }
+    }
+    if (deps.length > 0) return deps;
+  }
+
+  // go.mod
+  const gomod = keyFiles.find((f) => f.path.endsWith("go.mod"));
+  if (gomod) {
+    const deps: Dependency[] = [];
+    const requireBlock = gomod.content.match(/require\s*\(([\s\S]*?)\)/);
+    const lines = requireBlock ? requireBlock[1].split("\n") : gomod.content.split("\n");
+    for (const line of lines) {
+      const m = line.trim().match(/^([^\s]+)\s+([^\s]+)/);
+      if (m && !line.trim().startsWith("//") && m[1] !== "require" && m[1] !== "module") {
+        deps.push({ name: m[1], version: m[2], isDev: false });
+      }
+    }
+    if (deps.length > 0) return deps;
+  }
+
+  // pom.xml (Maven)
+  const pom = keyFiles.find((f) => f.path.endsWith("pom.xml"));
+  if (pom) {
+    const deps: Dependency[] = [];
+    const depMatches = pom.content.matchAll(/<dependency>[\s\S]*?<artifactId>([^<]+)<\/artifactId>[\s\S]*?(?:<version>([^<]+)<\/version>)?[\s\S]*?<\/dependency>/g);
+    for (const match of depMatches) {
+      deps.push({ name: match[1], version: match[2] || "managed", isDev: false });
     }
     if (deps.length > 0) return deps;
   }
@@ -408,7 +482,10 @@ export async function getContributors(
 }
 
 // ─── Commit Activity ──────────────────────────────────────────────────────────
-// Max 3 retries with back-off; returns zeroed fallback instead of hanging.
+// Max 5 retries with back-off; GitHub returns 202 while computing stats.
+// The response shape from /stats/commit_activity is an array of weekly objects:
+//   [ { week: <unix_ts>, total: <count>, days: [...] }, ... ]
+// NOT the { all, total, week } shape — that is /stats/participation.
 
 export async function getCommitActivity(
   owner: string,
@@ -416,46 +493,64 @@ export async function getCommitActivity(
   token?: string,
   _attempt = 0
 ): Promise<{ data?: CommitActivity; error?: ApiError }> {
-  const MAX_RETRIES = 2;
-  const DELAYS = [1500, 3000];
+  const MAX_RETRIES = 5;
+  const DELAYS = [1500, 2500, 4000, 6000, 8000];
   const fallback: CommitActivity = { totalCommitsLastYear: 0, avgCommitsPerWeek: 0, mostActiveWeek: "", lastCommitDate: "" };
 
-  const result = await fetchJson<{ all: number[]; total: number[]; week: number }>(
-    `${GITHUB_API_BASE}/repos/${owner}/${repo}/stats/commit_activity`,
+  // Use /stats/participation which gives owner + all committer counts broken down by week
+  // Shape: { all: number[52], owner: number[52] }
+  const participationResult = await fetchJson<{ all: number[]; owner: number[] }>(
+    `${GITHUB_API_BASE}/repos/${owner}/${repo}/stats/participation`,
     token
   );
 
-  if (result.error?.code === "API_ERROR") {
+  // 202 = GitHub is computing stats, retry
+  const raw = participationResult.data;
+  const isComputing =
+    participationResult.error?.code === "API_ERROR" ||
+    !raw ||
+    !Array.isArray(raw.all) ||
+    raw.all.length === 0;
+
+  if (isComputing) {
     if (_attempt < MAX_RETRIES) {
-      await new Promise((r) => setTimeout(r, DELAYS[_attempt] ?? 3000));
+      const delay = DELAYS[_attempt] ?? 8000;
+      console.log(`⏳ Commit stats computing, retry ${_attempt + 1}/${MAX_RETRIES} in ${delay}ms…`);
+      await new Promise((r) => setTimeout(r, delay));
       return getCommitActivity(owner, repo, token, _attempt + 1);
     }
     return { data: fallback };
   }
 
-  if (result.error) return { data: fallback };
-
-  const raw = result.data!;
-  if (!Array.isArray(raw.total) || raw.total.length === 0) {
-    if (_attempt < MAX_RETRIES) {
-      await new Promise((r) => setTimeout(r, DELAYS[_attempt] ?? 3000));
-      return getCommitActivity(owner, repo, token, _attempt + 1);
-    }
-    return { data: fallback };
-  }
-
-  const totalCommitsLastYear = raw.total.reduce((a, b) => a + b, 0);
+  const weeks = raw.all; // 52 weekly totals, oldest first
+  const totalCommitsLastYear = weeks.reduce((a, b) => a + b, 0);
   const avgCommitsPerWeek = Math.round(totalCommitsLastYear / 52);
-  let mostActiveWeek = "";
-  let maxC = 0;
-  const now = new Date();
-  for (let i = 0; i < raw.total.length; i++) {
-    if (raw.total[i] > maxC) {
-      maxC = raw.total[i];
-      mostActiveWeek = new Date(now.getTime() - (51 - i) * 7 * 86400000).toISOString().split("T")[0];
+
+  // Find most active week (ISO date of Monday that week)
+  let maxCount = 0;
+  let maxWeekIndex = 51;
+  for (let i = 0; i < weeks.length; i++) {
+    if (weeks[i] > maxCount) {
+      maxCount = weeks[i];
+      maxWeekIndex = i;
     }
   }
-  const lastCommitDate = new Date(now.getTime() - (51 - (raw.week ?? 0)) * 7 * 86400000).toISOString().split("T")[0];
+
+  // Week index 0 = 51 weeks ago, index 51 = this week
+  const now = new Date();
+  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+  const mostActiveWeekDate = new Date(now.getTime() - (51 - maxWeekIndex) * msPerWeek);
+  const mostActiveWeek = mostActiveWeekDate.toISOString().split("T")[0];
+
+  // Last commit date: find the most recent non-zero week
+  let lastCommitDate = "";
+  for (let i = weeks.length - 1; i >= 0; i--) {
+    if (weeks[i] > 0) {
+      const d = new Date(now.getTime() - (51 - i) * msPerWeek);
+      lastCommitDate = d.toISOString().split("T")[0];
+      break;
+    }
+  }
 
   return { data: { totalCommitsLastYear, avgCommitsPerWeek, mostActiveWeek, lastCommitDate } };
 }

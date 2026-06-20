@@ -16,37 +16,40 @@ import { llmService } from "./llm";
  * System prompts for different analysis tasks
  */
 const SYSTEM_PROMPTS = {
-  explanation: `Analyze this repository and write a concise markdown explanation covering: purpose, tech stack, key files, and main workflows. Be brief.`,
+  explanation: `You are an expert software engineer analyzing a GitHub repository. Based on the detailed context provided (README, source files, dependencies, languages), write a thorough markdown explanation covering:
+1. What the project does and who it's for
+2. The full tech stack with specific libraries/frameworks
+3. Architecture overview (how components connect)
+4. Key files and their roles
+5. Main user workflows
+6. Notable design decisions or patterns
 
-  scoring: `Score this repository 1-10 across 6 dimensions. Return ONLY valid JSON:
-{"overall":7.5,"breakdown":{"codeQuality":8,"documentation":7,"testing":6,"activity":8,"dependencies":7,"community":7},"details":{"codeQuality":["point1","point2"],"documentation":["point1"],"testing":["point1"],"activity":["point1"],"dependencies":["point1"],"community":["point1"]}}`,
+Be specific to THIS repository — use actual file names, library names, and features from the context. Do not write generic content.`,
 
-  architecture: `Generate a Mermaid flowchart for this repository's architecture.
-Return ONLY raw Mermaid code starting with "flowchart TB". No fences, no prose.
+  scoring: `You are a senior engineer doing a code review. Score this repository 1-10 across 6 dimensions based on the evidence in the context. Return ONLY valid JSON with no extra text:
+{"overall":7.5,"breakdown":{"codeQuality":8,"documentation":7,"testing":6,"activity":8,"dependencies":7,"community":7},"details":{"codeQuality":["specific observation 1","specific observation 2"],"documentation":["specific observation"],"testing":["specific observation"],"activity":["specific observation"],"dependencies":["specific observation"],"community":["specific observation"]}}
 
-flowchart TB
-    subgraph Frontend
-        A[UI] --> B[Components]
-    end
-    subgraph Backend
-        C[API] --> D[Services]
-        D --> E[(DB)]
-    end
-    Frontend --> Backend`,
+Base scores on actual evidence: test files presence, README quality, commit frequency, dependency count, etc.`,
 
-  workflow: `Generate a Mermaid sequence diagram for this repository's main user workflow.
-Return ONLY raw Mermaid code starting with "sequenceDiagram". No fences, no prose.
+  architecture: `You are a software architect. Generate a Mermaid flowchart diagram that accurately represents THIS repository's architecture based on the provided file structure, dependencies, and code.
 
-sequenceDiagram
-    participant User
-    participant App
-    participant API
-    User->>App: Action
-    App->>API: Request
-    API-->>App: Response
-    App-->>User: Result`,
+Rules:
+- Use actual component names, file names, and layer names from the repository
+- Show real data flow between components
+- Return ONLY raw Mermaid code starting with "flowchart TB"
+- No markdown fences, no explanatory text, just the diagram code
+- Include at least 6-8 nodes reflecting the real architecture`,
 
-  deployment: `Recommend deployment platforms for this repo. Return ONLY valid JSON:
+  workflow: `You are a software architect. Generate a Mermaid sequence diagram showing the main user workflow for THIS repository based on the provided context.
+
+Rules:
+- Use actual participant names (real component/service names from the repo)
+- Show the real sequence of operations that happen when a user uses the main feature
+- Return ONLY raw Mermaid code starting with "sequenceDiagram"
+- No markdown fences, no explanatory text, just the diagram code
+- Include at least 5-6 meaningful steps`,
+
+  deployment: `Recommend deployment platforms for this specific repository based on its tech stack and architecture. Return ONLY valid JSON with no extra text:
 {"free":[{"name":"Vercel","description":"Best for Next.js","difficulty":"Easy","estimatedTime":"3 min","features":["HTTPS","CDN","Preview"],"steps":["Connect GitHub","Import project","Deploy"],"pricing":"Free tier"},{"name":"Railway","description":"Full-stack platform","difficulty":"Easy","estimatedTime":"5 min","features":["Auto-scale","DB hosting"],"steps":["Create account","Deploy from GitHub","Set env vars"],"pricing":"$5 credit free"}],"paid":[{"name":"AWS Amplify","description":"Enterprise AWS","difficulty":"Medium","estimatedTime":"10 min","features":["CI/CD","Auth","API Gateway"],"steps":["Create AWS account","Connect repo","Configure build","Deploy"],"pricing":"Pay as you go"}]}`,
 
   mcp: `Generate a minimal MCP server config JSON for this repository. Return ONLY valid JSON with keys: name, version, description, server (port, host), capabilities (tools array with name/description/parameters), ai (provider, model).`,
@@ -64,8 +67,8 @@ async function generateExplanation(
     const response = await llmService.generateCompletion(provider, contextPrompt, {
       model,
       systemPrompt: SYSTEM_PROMPTS.explanation,
-      temperature: 0.7,
-      maxTokens: 1500,
+      temperature: 0.6,
+      maxTokens: 2500,
     });
     return response.content;
   } catch (error) {
@@ -218,8 +221,8 @@ async function generateArchitectureDiagram(
     const response = await llmService.generateCompletion(provider, contextPrompt, {
       model,
       systemPrompt: SYSTEM_PROMPTS.architecture,
-      temperature: 0.3,
-      maxTokens: 1000,
+      temperature: 0.2,
+      maxTokens: 1500,
     });
 
     const extracted = extractMermaid(response.content, "flowchart");
@@ -259,8 +262,8 @@ async function generateWorkflowDiagram(
     const response = await llmService.generateCompletion(provider, contextPrompt, {
       model,
       systemPrompt: SYSTEM_PROMPTS.workflow,
-      temperature: 0.3,
-      maxTokens: 1000,
+      temperature: 0.2,
+      maxTokens: 1500,
     });
 
     const extracted = extractMermaid(response.content, "sequencediagram");
@@ -351,41 +354,88 @@ async function generateMcpConfig(
 /**
  * Build context prompt from repository data.
  * Called once and reused across all 6 LLM tasks.
+ * Includes actual file contents for rich, repo-specific analysis.
  */
 export function buildContextPrompt(context: RepoContext): string {
-  const importantFilesSummary = context.importantFiles
-    .slice(0, 8)
-    .map((f) => `- ${f.path} (${f.language || "unknown"})`)
-    .join("\n");
-
-  const packageInfo = context.packageFile
-    ? `Package File: ${context.packageFile.type}\nDependencies: ${context.packageFile.dependencies.slice(0, 15).join(", ")}`
-    : "No package file detected";
-
-  // Trim README to 1500 chars — enough context, less tokens
+  // Full README (up to 3000 chars)
   const readmeSummary = context.readme
-    ? context.readme.slice(0, 1500) + (context.readme.length > 1500 ? "..." : "")
+    ? context.readme.slice(0, 3000) + (context.readme.length > 3000 ? "\n...(truncated)" : "")
     : "No README found";
 
-  return `Repository: ${context.metadata.fullName}
+  // Package file with FULL dependency list
+  let packageInfo = "No package file detected";
+  if (context.packageFile) {
+    packageInfo = `Package File: ${context.packageFile.type}\nDependencies (${context.packageFile.dependencies.length} total): ${context.packageFile.dependencies.join(", ")}`;
+  }
+
+  // Language breakdown
+  const languageInfo = context.languages
+    ? Object.entries(context.languages)
+        .slice(0, 8)
+        .map(([lang, bytes]) => {
+          const total = Object.values(context.languages).reduce((a, b) => a + b, 0);
+          return `${lang} (${total > 0 ? ((bytes / total) * 100).toFixed(1) : 0}%)`;
+        })
+        .join(", ")
+    : context.metadata.language || "Unknown";
+
+  // Actual content of important files (up to 800 chars each, max 6 files)
+  const fileContents = context.importantFiles
+    .slice(0, 6)
+    .map((f) => {
+      const snippet = f.content.slice(0, 800) + (f.content.length > 800 ? "\n...(truncated)" : "");
+      return `### ${f.path}\n\`\`\`\n${snippet}\n\`\`\``;
+    })
+    .join("\n\n");
+
+  // File tree summary (top-level structure)
+  const fileTree = context.tree.tree
+    .slice(0, 60)
+    .map((f) => f.path)
+    .join("\n");
+
+  // Dependencies with versions
+  const depsList = context.dependencies.length > 0
+    ? context.dependencies
+        .slice(0, 30)
+        .map((d) => `${d.name}@${d.version}${d.isDev ? " (dev)" : ""}`)
+        .join(", ")
+    : "None detected";
+
+  // Contributor list
+  const contributorList = context.contributors.length > 0
+    ? context.contributors.map((c) => `${c.login} (${c.contributions} commits)`).join(", ")
+    : "Unknown";
+
+  return `=== REPOSITORY CONTEXT ===
+
+Repository: ${context.metadata.fullName}
+URL: ${context.url}
 Description: ${context.metadata.description || "N/A"}
-Language: ${context.metadata.language || "N/A"}
-Stars: ${context.metadata.stars}
-Forks: ${context.metadata.forks}
-License: ${context.metadata.license || "N/A"}
 Topics: ${context.metadata.topics.join(", ") || "N/A"}
+License: ${context.metadata.license || "N/A"}
+Stars: ${context.metadata.stars} | Forks: ${context.metadata.forks} | Open Issues: ${context.metadata.openIssues}
+Total Files: ${context.tree.tree.length}
+Last Commit: ${context.lastCommit.date} by ${context.lastCommit.author} — "${context.lastCommit.message}"
+Commits (last year): ${context.commitActivity.totalCommitsLastYear}
+Contributors: ${contributorList}
+
+=== LANGUAGES ===
+${languageInfo}
+
+=== DEPENDENCIES ===
+${depsList}
 
 ${packageInfo}
 
-README Summary:
+=== README ===
 ${readmeSummary}
 
-Important Files:
-${importantFilesSummary}
+=== FILE STRUCTURE (first 60 files) ===
+${fileTree}
 
-File Count: ${context.tree.tree.length}
-Contributors: ${context.contributors.length}
-Last Commit: ${context.lastCommit.date}`;
+=== KEY FILE CONTENTS ===
+${fileContents}`;
 }
 
 /**

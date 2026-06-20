@@ -37,9 +37,12 @@ export function OverviewTab({ data }: { data: RepoData | null }) {
   const commits = context.commitActivity.totalCommitsLastYear;
   const contributors = context.contributors.length;
   const dependencies = context.dependencies.length;
-  const topDependencies = context.dependencies.slice(0, 5);
-  const devDeps = context.dependencies.filter((d) => d.isDev).length;
-  const prodDeps = dependencies - devDeps;
+  // Show top 8 production deps first, then dev deps
+  const prodDeps = context.dependencies.filter((d) => !d.isDev);
+  const devDeps = context.dependencies.filter((d) => d.isDev);
+  const topDependencies = [...prodDeps.slice(0, 6), ...devDeps.slice(0, 2)].slice(0, 8);
+  const devDepsCount = devDeps.length;
+  const prodDepsCount = prodDeps.length;
 
   return (
     <div className="space-y-6">
@@ -167,7 +170,12 @@ export function OverviewTab({ data }: { data: RepoData | null }) {
                         {dep.name}
                       </span>
                     </div>
-                    <span className="text-xs text-slate-400 font-mono">{dep.version}</span>
+                    <div className="flex items-center gap-2">
+                      {dep.isDev && (
+                        <span className="text-xs text-slate-500 px-1.5 py-0.5 rounded bg-white/[0.05]">dev</span>
+                      )}
+                      <span className="text-xs text-slate-400 font-mono">{dep.version}</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -183,14 +191,20 @@ export function OverviewTab({ data }: { data: RepoData | null }) {
                 <div className="text-xs text-slate-400 mt-1">Total</div>
               </div>
               <div className="p-4 rounded-lg bg-[#7c3aed]/5 border border-[#7c3aed]/10">
-                <div className="text-2xl font-bold text-[#7c3aed]">{prodDeps}</div>
+                <div className="text-2xl font-bold text-[#7c3aed]">{prodDepsCount}</div>
                 <div className="text-xs text-slate-400 mt-1">Production</div>
               </div>
               <div className="p-4 rounded-lg bg-white/[0.05] border border-white/[0.08]">
-                <div className="text-2xl font-bold text-white">{devDeps}</div>
+                <div className="text-2xl font-bold text-white">{devDepsCount}</div>
                 <div className="text-xs text-slate-400 mt-1">Development</div>
               </div>
             </div>
+            {context.commitActivity.avgCommitsPerWeek > 0 && (
+              <div className="mt-4 pt-4 border-t border-white/[0.08] flex items-center justify-between text-sm">
+                <span className="text-slate-400">Avg commits/week</span>
+                <span className="text-green-400 font-semibold">{context.commitActivity.avgCommitsPerWeek}</span>
+              </div>
+            )}
           </Card>
         </motion.div>
       </div>
