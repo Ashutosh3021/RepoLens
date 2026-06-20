@@ -443,7 +443,7 @@ export function ProfileAnalysis() {
             {/* Quick stats */}
             <div className="flex flex-wrap gap-3">
               {[
-                { label: "Repos", value: analysis.repos.length },
+                { label: "Repos", value: analysis.profile.public_repos ?? 0 },
                 { label: "Stars", value: analysis.totalStars.toLocaleString() },
                 { label: "Followers", value: analysis.profile.followers.toLocaleString() },
                 { label: "Account Age", value: `${Math.floor(analysis.accountAge / 365)}y` },
@@ -580,7 +580,7 @@ export function ProfileAnalysis() {
       <div className="flex items-center gap-2 p-3 rounded-lg bg-white/[0.03] border border-white/[0.06]">
         <Github className="w-4 h-4 text-slate-500 flex-shrink-0" />
         <p className="text-xs text-slate-500">
-          Analysis based on {analysis.repos.length} public repositories using your authenticated GitHub token.
+          Analysis based on {analysis.profile.public_repos ?? 0} public repositories using your authenticated GitHub token.
           {" "}Scores are computed deterministically from public data — no AI inference required.
         </p>
       </div>
