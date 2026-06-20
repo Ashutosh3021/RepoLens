@@ -11,13 +11,14 @@ import {
   User, Activity, GitBranch, Code2, Users, TrendingUp,
   GitMerge, Briefcase, Layers, GitPullRequest,
   Star, Copy, Check, ChevronDown, ChevronUp,
-  Trophy, Target, Zap, BarChart3,
+  Trophy, Target, Zap, BarChart3, Rocket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/use-auth";
+import { JobHuntDashboard } from "@/components/job-hunt/JobHuntDashboard";
 import type { FullProfileAnalysis, CategoryKey, CategoryScore } from "@/lib/types/profile";
 
 
@@ -219,6 +220,7 @@ export function ProfileAnalysis() {
   const [error, setError]         = useState<string | null>(null);
   const [step, setStep]           = useState(0);
   const [expanded, setExpanded]   = useState<Record<string, boolean>>({});
+  const [isJobHuntMode, setIsJobHuntMode] = useState(false);
 
   const runAnalysis = useCallback(async () => {
     if (!user?.username) {
@@ -374,6 +376,22 @@ export function ProfileAnalysis() {
   }
 
 
+  // ── If in Job Hunt Mode, show Job Hunt Dashboard ─────────────────────────
+  if (isJobHuntMode && analysis) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+      >
+        <JobHuntDashboard
+          analysis={analysis}
+          onBack={() => setIsJobHuntMode(false)}
+        />
+      </motion.div>
+    );
+  }
+
   // ── Full results view ──────────────────────────────────────────────────────
   const categoryEntries = Object.entries(analysis.categories) as [CategoryKey, CategoryScore][];
 
@@ -517,7 +535,16 @@ export function ProfileAnalysis() {
 
       {/* ── Suggested roles ───────────────────────────────────────────────── */}
       <div>
-        <h2 className="text-lg font-bold text-white mb-4">Suggested Job Roles</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-white">Suggested Job Roles</h2>
+          <Button
+            onClick={() => setIsJobHuntMode(true)}
+            className="bg-[#00e5ff] hover:bg-[#00b8d4] text-[#0a0a0f]"
+          >
+            <Rocket className="w-4 h-4 mr-2" />
+            Start Job Hunt with These Roles
+          </Button>
+        </div>
         <div className="grid sm:grid-cols-2 gap-4">
           {analysis.suggestedRoles.map(role => (
             <Card key={role.title} className="glass-card p-5">
