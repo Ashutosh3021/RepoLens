@@ -6,11 +6,23 @@
 import "next-auth";
 import { JWT } from "next-auth/jwt";
 
+interface GitHubProfile {
+  login?: string;
+  id?: number;
+  avatar_url?: string;
+  html_url?: string;
+  name?: string;
+  bio?: string;
+  public_repos?: number;
+  followers?: number;
+  following?: number;
+}
+
 declare module "next-auth" {
   interface Session {
     accessToken?: string;
     provider?: string;
-    githubProfile?: Record<string, unknown>;
+    githubProfile?: GitHubProfile;
   }
 
   interface User {
@@ -22,6 +34,6 @@ declare module "next-auth/jwt" {
   interface JWT {
     accessToken?: string;
     provider?: string;
-    githubProfile?: Record<string, unknown>;
+    githubProfile?: GitHubProfile;
   }
 }

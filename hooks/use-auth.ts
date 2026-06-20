@@ -16,6 +16,7 @@ export interface AuthUser {
   name:  string | null;
   email: string | null;
   image: string | null;
+  username: string | null;
 }
 
 export interface UseAuthReturn {
@@ -24,6 +25,7 @@ export interface UseAuthReturn {
   user:        AuthUser | null;
   login:       () => void;
   logout:      () => void;
+  accessToken?: string;
 }
 
 export function useAuth(): UseAuthReturn {
@@ -37,11 +39,19 @@ export function useAuth(): UseAuthReturn {
         name:  session.user.name  ?? null,
         email: session.user.email ?? null,
         image: session.user.image ?? null,
+        username: (session as any)?.githubProfile?.login ?? null,
       }
     : null;
 
   const login  = () => signIn("github");
   const logout = () => signOut({ callbackUrl: "/" });
 
-  return { isLoggedIn, isLoading, user, login, logout };
+  return { 
+    isLoggedIn, 
+    isLoading, 
+    user, 
+    login, 
+    logout, 
+    accessToken: (session as any)?.accessToken 
+  };
 }

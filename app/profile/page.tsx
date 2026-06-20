@@ -9,6 +9,8 @@ import { Loader2 } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { ProfileAnalysis } from "@/components/profile-analysis";
 
+export const dynamic = "force-dynamic";
+
 export default function ProfilePage() {
   return (
     <Suspense

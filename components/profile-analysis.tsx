@@ -213,7 +213,7 @@ const STEPS = [
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export function ProfileAnalysis() {
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const [analysis, setAnalysis]   = useState<FullProfileAnalysis | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError]         = useState<string | null>(null);
@@ -221,6 +221,11 @@ export function ProfileAnalysis() {
   const [expanded, setExpanded]   = useState<Record<string, boolean>>({});
 
   const runAnalysis = useCallback(async () => {
+    if (!user?.username) {
+      setError("Could not find GitHub username. Please re-authenticate.");
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     setAnalysis(null);
@@ -230,7 +235,14 @@ export function ProfileAnalysis() {
     const timer = setInterval(() => setStep(s => Math.min(s + 1, STEPS.length - 1)), 1800);
 
     try {
-      const res = await fetch("/api/profile/analyze", { method: "POST" });
+      const res = await fetch("/api/profile/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { "x-github-token": accessToken } : {}),
+        },
+        body: JSON.stringify({ username: user.username }),
+      });
       const json = await res.json();
       clearInterval(timer);
 
@@ -245,7 +257,7 @@ export function ProfileAnalysis() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [user, accessToken]);
 
   function toggleCategory(key: string) {
     setExpanded(prev => ({ ...prev, [key]: !prev[key] }));
