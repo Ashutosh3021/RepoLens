@@ -30,6 +30,7 @@ import { JobRolesSection } from "./JobRolesSection";
 import { RoadmapTable } from "./RoadmapTable";
 import { ExportButton } from "./ExportButton";
 import { AnalysisLoadingState } from "./AnalysisLoadingState";
+import { JobHuntDashboard } from "../job-hunt/JobHuntDashboard";
 import type { CategoryKey } from "@/lib/types/profile";
 
 // ─── Sidebar nav sections ─────────────────────────────────────────────────────
@@ -154,6 +155,7 @@ export function ProfileAnalysisDashboard({ initialUsername }: Props) {
   const isAuthenticated = !!(session as { accessToken?: string })?.accessToken;
   const { state, analyze, reset } = useProfileAnalysis();
   const [activeSection, setActiveSection] = useState<string>("hero");
+  const [isJobHuntMode, setIsJobHuntMode] = useState(false);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Scroll spy
@@ -230,8 +232,17 @@ export function ProfileAnalysisDashboard({ initialUsername }: Props) {
     );
   }
 
-  // ── Complete: show full report ──
+  // ── Complete: show full report or job hunt mode ──
   const analysis = state.analysis;
+
+  if (isJobHuntMode) {
+    return (
+      <JobHuntDashboard
+        analysis={analysis}
+        onBack={() => setIsJobHuntMode(false)}
+      />
+    );
+  }
 
   return (
     <div className="flex gap-0 relative">
@@ -349,7 +360,10 @@ export function ProfileAnalysisDashboard({ initialUsername }: Props) {
 
         {/* Section 4: Job Roles */}
         <div id="roles" ref={el => { sectionRefs.current["roles"] = el; }}>
-          <JobRolesSection roles={analysis.suggestedRoles} />
+          <JobRolesSection
+            roles={analysis.suggestedRoles}
+            onStartJobHunt={() => setIsJobHuntMode(true)}
+          />
         </div>
 
         {/* Section 5: Roadmap */}

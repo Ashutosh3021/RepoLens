@@ -8,12 +8,14 @@
 import { motion } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Briefcase, CheckCircle2, XCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Briefcase, CheckCircle2, XCircle, Rocket } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { JobRole } from "@/lib/types/profile";
 
 interface Props {
   roles: JobRole[];
+  onStartJobHunt?: () => void;
 }
 
 function matchColor(pct: number) {
@@ -23,19 +25,30 @@ function matchColor(pct: number) {
   return { bar: "#ef4444", text: "text-red-400", badge: "bg-red-500/10 text-red-400 border-red-500/30" };
 }
 
-export function JobRolesSection({ roles }: Props) {
+export function JobRolesSection({ roles, onStartJobHunt }: Props) {
   if (!roles.length) return null;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="p-2 rounded-lg bg-[#00e5ff]/10">
-          <Briefcase className="w-5 h-5 text-[#00e5ff]" />
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-[#00e5ff]/10">
+            <Briefcase className="w-5 h-5 text-[#00e5ff]" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-white">Suggested Job Roles</h3>
+            <p className="text-xs text-slate-400">Based on your detected tech stack and activity</p>
+          </div>
         </div>
-        <div>
-          <h3 className="font-semibold text-white">Suggested Job Roles</h3>
-          <p className="text-xs text-slate-400">Based on your detected tech stack and activity</p>
-        </div>
+        {onStartJobHunt && (
+          <Button
+            onClick={onStartJobHunt}
+            className="bg-[#00e5ff] hover:bg-[#00b8d4] text-[#0a0a0f]"
+          >
+            <Rocket className="w-4 h-4 mr-2" />
+            Start Job Hunt with These Roles
+          </Button>
+        )}
       </div>
 
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">

@@ -1,0 +1,202 @@
+A. Job & Internship Search URLs (1–15)
+1. Internship-only feed
+/jobs/search/?keywords=intern&f_E=1
+
+
+2. Internships posted in last 24 hours
+/jobs/search/?keywords=intern&f_E=1&f_TPR=r86400
+
+
+3. Remote internships
+/jobs/search/?keywords=intern&f_E=1&f_WT=2
+
+
+4. Paid internships keyword filter
+/jobs/search/?keywords=paid%20intern&f_E=1
+
+
+5. Software internships
+/jobs/search/?keywords=software%20intern&f_E=1
+
+
+6. Marketing internships
+/jobs/search/?keywords=marketing%20intern&f_E=1
+
+
+7. Data / Analyst internships
+/jobs/search/?keywords=data%20intern&f_E=1
+
+
+8. Design internships
+/jobs/search/?keywords=design%20intern&f_E=1
+
+
+9. Startup internships
+/jobs/search/?keywords=intern%20startup&f_E=1
+
+
+10. Internships with Easy Apply
+/jobs/search/?keywords=intern&f_E=1&f_AL=true
+
+
+11. Entry-level jobs only
+/jobs/search/?f_E=2
+
+
+12. Fresher roles
+/jobs/search/?keywords=fresher
+
+
+13. Graduate roles
+/jobs/search/?keywords=graduate
+
+
+14. Apprenticeship roles
+/jobs/search/?keywords=apprenticeship
+
+
+15. Internships at MNCs
+/jobs/search/?keywords=intern%20global
+
+
+________________
+
+
+B. Recruiter & Hiring Manager Discovery (16–30)
+16. Recruiters only
+/search/results/people/?keywords=recruiter
+
+
+17. Campus hiring recruiters
+/search/results/people/?keywords=campus%20recruiter
+
+
+18. Early career recruiters
+/search/results/people/?keywords=early%20careers
+
+
+19. University relations / campus team
+/search/results/people/?keywords=university%20relations
+
+
+20. Talent acquisition (hidden recruiter term)
+/search/results/people/?keywords=talent%20acquisition
+
+
+21. Hiring managers (non-HR)
+/search/results/people/?keywords=hiring%20manager
+
+
+22. Engineering managers
+/search/results/people/?keywords=engineering%20manager
+
+
+23. Team leads
+/search/results/people/?keywords=team%20lead
+
+
+24. Startup founders (small teams hire interns directly)
+/search/results/people/?keywords=founder
+
+
+25. HR without “HR” keyword
+/search/results/people/?keywords=people%20operations
+
+
+26. Active recruiters only (manual check)
+Search → sort by “Recent activity”
+27. Recruiters at a specific company
+/search/results/people/?currentCompany=[COMPANY_ID]&keywords=recruiter
+
+
+   28. Campus recruiters at a company
+/search/results/people/?currentCompany=[COMPANY_ID]&keywords=campus
+
+
+   29. Hiring managers at a company
+/search/results/people/?currentCompany=[COMPANY_ID]&keywords=manager
+
+
+   30. Internship coordinators
+/search/results/people/?keywords=internship%20program
+
+
+________________
+
+
+C. Alumni & Network Leverage (31–40)
+   31. Your college alumni
+College page → Alumni → filter by role
+   32. Alumni recruiters
+/search/results/people/?keywords=alumni%20recruiter
+
+
+      33. Alumni at a company
+/search/results/people/?keywords=alumni&currentCompany=[COMPANY_ID]
+
+
+      34. Recent graduates
+/search/results/people/?keywords=recent%20graduate
+
+
+      35. People who were interns before
+/search/results/people/?keywords=former%20intern
+
+
+      36. People who joined recently (good referral chance)
+Filter → “Past 1 year”
+      37. People in same role you want
+/search/results/people/?keywords=job_title
+
+
+         38. People who transitioned roles
+/search/results/people/?keywords=career%20transition
+
+
+         39. People posting about hiring
+/search/results/content/?keywords=hiring%20intern
+
+
+         40. People sharing internship opportunities
+/search/results/content/?keywords=internship%20opening
+
+
+________________
+
+
+D. Profile, Visibility & Algorithm Tricks (41–50)
+         41. Profile views tracking (free)
+/me/profile-views/
+
+
+         42. Who viewed your profile after applying
+Check views 24 hours post application
+         43. Skill reordering before applying
+Move JD skills to top 3
+         44. Headline refresh before applying
+Edit headline → wait 3 min → apply
+         45. Open to work (recruiters only)
+No green frame, backend boost
+         46. Shadow keyword test
+Search your own name + role
+         47. Avoid application throttling
+Max 5–7 applications/day
+         48. Reposted job priority
+Apply only to “Reposted” jobs
+         49. Search imprint training
+Repeatedly search your target role daily
+         50. Resume classification test
+/jobs/resume-builder/
+
+
+If LinkedIn misreads your role, recruiters will too.
+
+
+
+
+
+
+Cold Dm
+Hi [Name],
+I came across the internship role at [Company] and liked how your team works on early-career hiring.
+Would love to connect and learn more.
