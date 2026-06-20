@@ -1,21 +1,23 @@
 /**
  * API Route: POST /api/profile/analyze
  * Fetches a GitHub user profile + all repos, runs scoring engine,
- * caches result, and returns FullProfileAnalysis.
+ * and returns FullProfileAnalysis.
+ *
+ * NOTE: We intentionally do NOT import the SQLite cache here.
+ * The db module opens a file at /tmp/repolens-data which may not exist
+ * on all platforms. The profile analysis is fast enough without caching
+ * (GitHub API ≈ 2-4s), and the browser can cache via sessionStorage.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { fetchProfileData } from "@/lib/githubProfile";
 import { computeFullProfileAnalysis } from "@/lib/profileScoring";
-import { cache } from "@/lib/redis";
 
 const Schema = z.object({
   username: z.string().min(1).max(39).trim(),
   forceRefresh: z.boolean().optional().default(false),
 });
-
-const CACHE_TTL = 60 * 60 * 6; // 6 hours
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,23 +26,14 @@ export async function POST(request: NextRequest) {
 
     if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: "Invalid username" },
+        { success: false, error: "Invalid username — must be 1–39 characters." },
         { status: 400 }
       );
     }
 
-    const { username, forceRefresh } = parsed.data;
-    const cacheKey = `profile-analysis:${username.toLowerCase()}`;
+    const { username } = parsed.data;
 
-    // Return cached result unless force-refresh
-    if (!forceRefresh) {
-      const cached = await cache.get(cacheKey);
-      if (cached) {
-        return NextResponse.json({ success: true, data: cached, cached: true });
-      }
-    }
-
-    // Use OAuth token if passed via header (for higher rate limits)
+    // Use OAuth token if passed via header (for higher GitHub rate limits)
     const token =
       request.headers.get("x-github-token") ||
       process.env.GITHUB_TOKEN ||
@@ -48,57 +41,45 @@ export async function POST(request: NextRequest) {
 
     const isAuthenticated = !!token;
 
-    // Fetch from GitHub
+    // Fetch profile + all repos from GitHub
     const { profile, repos, error, rateLimited } = await fetchProfileData(username, token);
 
     if (error || !profile || !repos) {
       return NextResponse.json(
-        { success: false, error: error ?? "Failed to fetch profile", rateLimited: !!rateLimited },
+        {
+          success: false,
+          error: error ?? "Failed to fetch GitHub profile",
+          rateLimited: !!rateLimited,
+        },
         { status: rateLimited ? 429 : 404 }
       );
     }
 
-    // Compute scores
+    // Run scoring engine (pure computation, ~5ms)
     const analysis = computeFullProfileAnalysis(profile, repos, isAuthenticated);
 
-    // Strip the full repos array before caching — it can be 500+ items and
-    // bloats the SQLite cache. The display layer only needs the top repos
-    // already embedded in visualizations.projectStrengths.
-    const { repos: _stripped, ...analysisToStore } = analysis;
+    // Strip raw repos array from response — it can be 500+ objects.
+    // All display data is already pre-computed inside analysis.visualizations.
+    const { repos: _raw, ...payload } = analysis;
 
-    // Cache and return (without the raw repos array)
-    await cache.set(cacheKey, analysisToStore, CACHE_TTL);
-
-    return NextResponse.json({ success: true, data: analysisToStore, cached: false });
+    return NextResponse.json({ success: true, data: payload });
   } catch (err) {
-    // Log the full error server-side for debugging
-    console.error("[/api/profile/analyze] Unhandled error:", err);
-    if (err instanceof Error) {
-      console.error("Stack:", err.stack);
-    }
-    // Always return valid JSON — never let the body be empty
+    console.error("[POST /api/profile/analyze] error:", err);
+    if (err instanceof Error) console.error("Stack:", err.stack);
     return NextResponse.json(
       {
         success: false,
-        error: err instanceof Error
-          ? `Server error: ${err.message}`
-          : "An unexpected server error occurred. Check server logs.",
+        error: err instanceof Error ? err.message : "Unexpected server error",
       },
       { status: 500 }
     );
   }
 }
 
-// Allow GET for cache retrieval
-export async function GET(request: NextRequest) {
-  const username = new URL(request.url).searchParams.get("username");
-  if (!username) {
-    return NextResponse.json({ success: false, error: "username required" }, { status: 400 });
-  }
-  const cacheKey = `profile-analysis:${username.toLowerCase()}`;
-  const cached = await cache.get(cacheKey);
-  if (!cached) {
-    return NextResponse.json({ success: false, error: "Not analyzed yet" }, { status: 404 });
-  }
-  return NextResponse.json({ success: true, data: cached, cached: true });
+// GET is not needed without a cache — keep it as a no-op to avoid 405s
+export async function GET() {
+  return NextResponse.json(
+    { success: false, error: "Use POST /api/profile/analyze" },
+    { status: 405 }
+  );
 }

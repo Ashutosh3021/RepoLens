@@ -40,15 +40,41 @@ export function useProfileAnalysis() {
     async (username: string, forceRefresh = false) => {
       if (!username.trim()) return;
 
-      setState({ status: "fetching-profile", progress: 15, progressLabel: "Fetching GitHub profile…", analysis: null, error: null });
+      const cacheKey = `profile-analysis:${username.trim().toLowerCase()}`;
+
+      // --- sessionStorage cache (skip API call on repeat views) ---
+      if (!forceRefresh) {
+        try {
+          const stored = sessionStorage.getItem(cacheKey);
+          if (stored) {
+            const parsed = JSON.parse(stored) as FullProfileAnalysis;
+            setState({
+              status: "complete",
+              progress: 100,
+              progressLabel: "Loaded from cache",
+              analysis: parsed,
+              error: null,
+            });
+            return;
+          }
+        } catch {
+          // Corrupt cache entry — proceed with fresh fetch
+          sessionStorage.removeItem(cacheKey);
+        }
+      }
+
+      setState({
+        status: "fetching-profile",
+        progress: 15,
+        progressLabel: "Fetching GitHub profile…",
+        analysis: null,
+        error: null,
+      });
 
       try {
         const token = (session as { accessToken?: string })?.accessToken;
 
-        // Step 1 — show fetching profile UI
         setStep(STEPS[0]);
-
-        // Step 2 — show loading repos UI
         setStep(STEPS[1]);
 
         const res = await fetch("/api/profile/analyze", {
@@ -57,11 +83,10 @@ export function useProfileAnalysis() {
             "Content-Type": "application/json",
             ...(token ? { "x-github-token": token } : {}),
           },
-          body: JSON.stringify({ username: username.trim(), forceRefresh }),
+          body: JSON.stringify({ username: username.trim() }),
         });
 
-        // Read the body ONCE immediately — before any awaits that could let the
-        // stream be garbage collected.
+        // Read body once, immediately — before any awaits
         let json: { success: boolean; data?: FullProfileAnalysis; error?: string };
         try {
           const text = await res.text();
@@ -70,7 +95,7 @@ export function useProfileAnalysis() {
           setState(prev => ({
             ...prev,
             status: "error",
-            error: `Server returned an unreadable response (HTTP ${res.status}). Check server logs.`,
+            error: `Server returned an unreadable response (HTTP ${res.status}). Check the terminal running next dev for the full error.`,
           }));
           return;
         }
@@ -84,20 +109,26 @@ export function useProfileAnalysis() {
           return;
         }
 
-        // Step 3 — brief UI pause to show "computing scores" step
+        // Brief UI steps for perceived progress
         setStep(STEPS[2]);
-        await delay(200);
-
-        // Step 4 — brief UI pause to show "building roadmap" step
+        await delay(180);
         setStep(STEPS[3]);
-        await delay(150);
+        await delay(120);
 
-        // Complete
+        const result = json.data as FullProfileAnalysis;
+
+        // Persist to sessionStorage for instant repeat loads
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify(result));
+        } catch {
+          // sessionStorage quota exceeded — not critical
+        }
+
         setState({
           status: "complete",
           progress: 100,
           progressLabel: "Analysis complete!",
-          analysis: json.data as FullProfileAnalysis,
+          analysis: result,
           error: null,
         });
       } catch (err) {
