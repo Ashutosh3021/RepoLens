@@ -11,13 +11,14 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Briefcase, ExternalLink, Users, GraduationCap, Lightbulb, MessageSquare, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Briefcase, ExternalLink, Users, GraduationCap, Lightbulb, MessageSquare, CheckCircle2, Sparkles } from "lucide-react";
 import { useJobHunt } from "@/hooks/useJobHunt";
 import { SearchLinksSection } from "./SearchLinksSection";
 import { RecruiterDiscoverySection } from "./RecruiterDiscoverySection";
 import { NetworkSection } from "./NetworkSection";
 import { TipsSection } from "./TipsSection";
 import { ColdDMSection } from "./ColdDMSection";
+import { JobSearchWizard } from "./JobSearchWizard";
 import type { FullProfileAnalysis } from "@/lib/types/profile";
 
 interface Props {
@@ -27,10 +28,11 @@ interface Props {
 
 export function JobHuntDashboard({ analysis, onBack }: Props) {
   const jobHuntData = useJobHunt(analysis);
-  const [activeTab, setActiveTab] = useState("search");
+  const [activeTab, setActiveTab] = useState("wizard");
   const [applicationsSent, setApplicationsSent] = useState(0);
 
   const tabItems = [
+    { id: "wizard", label: "Search Wizard", icon: Sparkles },
     { id: "search", label: "Search Links", icon: ExternalLink },
     { id: "recruiters", label: "Recruiters", icon: Users },
     { id: "network", label: "Network", icon: GraduationCap },
@@ -124,6 +126,10 @@ export function JobHuntDashboard({ analysis, onBack }: Props) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2 }}
         >
+          <TabsContent value="wizard" className="mt-0">
+            <JobSearchWizard />
+          </TabsContent>
+
           <TabsContent value="search" className="mt-0">
             <SearchLinksSection links={jobHuntData.searchUrls} />
           </TabsContent>
